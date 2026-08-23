@@ -210,6 +210,17 @@ const PANEL_CSS = [
   '  border-radius: 1px; background: var(--dsw-alias-state-business-primary);',
   '  z-index: 2; pointer-events: none;',
   '}',
+  // Narrow screens: the settings nav stays a fixed 188px, which on a small
+  // dialog leaves the panel too cramped for the row's action cluster. Narrow
+  // the nav and compact the row actions (hide the decorative grip, shrink
+  // icons) so everything fits. !important is needed: the elements carry React
+  // inline styles / upstream nav rules, which would otherwise beat the classes.
+  '@media (max-width: 520px) {',
+  '  [role="dialog"] nav { width: 140px !important; }',
+  '  .dsm-row { gap: 4px !important; padding: 6px 8px !important; }',
+  '  .dsm-row-grip { display: none !important; }',
+  '  .dsm-icon-btn { width: 22px !important; height: 22px !important; }',
+  '}',
 ].join('\n')
 
 function insertStyles(css: string): () => void {
@@ -836,7 +847,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
           onDrop: (e: React.DragEvent<HTMLLIElement>) => handleDrop(e, row.id),
           onDragEnd: handleDragEnd,
         },
-        React.createElement('span', { style: styles.grip, title: t('dragHint') }, svgIcon('grip')),
+        React.createElement('span', { className: 'dsm-row-grip', style: styles.grip, title: t('dragHint') }, svgIcon('grip')),
         React.createElement(
           'div',
           { style: styles.rowMain },
@@ -868,6 +879,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
             },
           },
           React.createElement('span', {
+            className: 'dsm-switch-knob',
             style: {
               ...styles.switchKnob,
               transform: row.hidden ? 'translateX(0)' : 'translateX(14px)',
