@@ -123,6 +123,9 @@ window.__ModuleLoader__.load({
       '.dsm-icon-btn:disabled:hover { background: transparent; }',
       '.dsm-reset-all:hover { background: var(--dsw-alias-interactive-bg-hover); }',
       '.dsm-switch:disabled { opacity: .5; cursor: default; }',
+      // Drag feedback via classes (not inline styles — see styles.row comment).
+      '.dsm-row-dragging { opacity: .4; }',
+      '.dsm-row.dsm-drop-target { border-color: var(--dsw-alias-border-l2); box-shadow: 0 0 0 1px var(--dsw-alias-border-l2); }',
     ].join('\n')
 
     function insertStyles(css) {
@@ -439,8 +442,11 @@ window.__ModuleLoader__.load({
         border: '1px solid var(--dsw-alias-border-l1)',
         cursor: 'grab',
       },
-      rowDragging: { opacity: 0.4 },
-      rowDropTarget: { borderColor: 'var(--dsw-alias-border-l2)', boxShadow: '0 0 0 1px var(--dsw-alias-border-l2)' },
+      // Drag feedback lives in CSS classes (.dsm-row-dragging / .dsm-drop-target),
+      // NOT inline styles: mixing the `border` shorthand above with a
+      // `borderColor` longhand causes React's inline-style diffing to corrupt
+      // the border when toggling the drop target (the row's border ends up
+      // emptied and stays visually "highlighted" after the drop).
       grip: {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
         color: 'var(--dsw-alias-label-caption)', cursor: 'grab', padding: 0, background: 'none', border: 'none',
@@ -541,16 +547,35 @@ window.__ModuleLoader__.load({
         }
 
         function handleDragOver(e, id) {
-          if (dragId.current === id) return
+          if (dragId.current === id) {
+            // Over the source row: don't allow a drop here, and clear any
+            // lingering highlight.
+            if (overId !== null) setOverId(null)
+            return
+          }
           e.preventDefault()
           if (overId !== id) setOverId(id)
         }
 
+        function handleDragLeave(e) {
+          // Clear the highlight once the pointer leaves this row entirely
+          // (dragging over another row re-sets it). relatedTarget check avoids
+          // flicker when moving between the row's own child elements.
+          if (!e.currentTarget.contains(e.relatedTarget)) {
+            if (overId !== null) setOverId(null)
+          }
+        }
+
         function handleDrop(e, id) {
           e.preventDefault()
-          const movedId = dragId.current
+          e.stopPropagation()
+          // Prefer the ref; fall back to the dataTransfer payload in case a
+          // dragstart didn't register dragId (would otherwise show the
+          // highlight but never move).
+          const movedId = dragId.current || (e.dataTransfer && e.dataTransfer.getData('text/plain'))
           dragId.current = null
           setOverId(null)
+          force()
           if (!movedId || movedId === id) return
           const rect = e.currentTarget.getBoundingClientRect()
           const place = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
@@ -567,11 +592,9 @@ window.__ModuleLoader__.load({
           const isOwn = row.id === OWN_ID
           const dragging = dragId.current === row.id
           const isTarget = overId === row.id
-          const style = {
-            ...styles.row,
-            ...(dragging ? styles.rowDragging : {}),
-            ...(isTarget ? styles.rowDropTarget : {}),
-          }
+          const className = ['dsm-row', dragging ? 'dsm-row-dragging' : '', isTarget ? 'dsm-drop-target' : '']
+            .filter(Boolean)
+            .join(' ')
           const prev = rows[index - 1]
           const next = rows[index + 1]
 
@@ -580,9 +603,11 @@ window.__ModuleLoader__.load({
             {
               key: row.id,
               draggable: true,
-              style,
+              className,
+              style: styles.row,
               onDragStart: (e) => handleDragStart(e, row.id),
               onDragOver: (e) => handleDragOver(e, row.id),
+              onDragLeave: handleDragLeave,
               onDrop: (e) => handleDrop(e, row.id),
               onDragEnd: handleDragEnd,
             },

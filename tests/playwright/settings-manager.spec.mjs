@@ -81,6 +81,46 @@ test('manager panel renders a row per section with a switch, and toggling hides/
   await expect(nav.getByRole('button', { name: 'API 重试', exact: true })).toBeVisible()
 })
 
+test('drag & drop moves a section and clears the drop highlight', async ({ page }) => {
+  await page.goto('/')
+  expect(await openSettings(page), 'settings should open after dismissing first-run dialogs').toBe(true)
+
+  const nav = page.locator('[role="dialog"] nav')
+  await nav.getByRole('button', { name: '设置编排' }).click()
+  const dialog = page.locator('[role="dialog"]')
+  const rows = dialog.locator('li')
+
+  const orderOf = async (label) => {
+    const texts = await nav.getByRole('button').allTextContents()
+    return texts.indexOf(label)
+  }
+  const before = await orderOf('设置编排')
+
+  // Drag "设置编排" (near the top) down onto a NON-adjacent row, so either a
+  // before/after placement moves it (a drop at the exact middle of the target
+  // computes 'before', which is a no-op for an immediately-adjacent pair).
+  const src = rows.filter({ hasText: '设置编排' }).first()
+  const dst = rows.filter({ hasText: '模型能力与档位' }).first()
+  await src.scrollIntoViewIfNeeded()
+  await dst.scrollIntoViewIfNeeded()
+  const a = await src.boundingBox()
+  const b = await dst.boundingBox()
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 15 })
+  await page.mouse.up()
+
+  // The row moved (down one slot)…
+  await expect.poll(async () => (await orderOf('设置编排')) > before).toBe(true)
+
+  // …and no row keeps the drop-target highlight after the drop.
+  await expect(dialog.locator('li.dsm-drop-target')).toHaveCount(0)
+
+  // Clean up: restore the original order so later runs start from a clean slate.
+  await dialog.locator('.dsm-reset-all').click()
+  await expect.poll(async () => (await orderOf('设置编排')) === before).toBe(true)
+})
+
 test('reset-all restores the original nav order after a reorder', async ({ page }) => {
   await page.goto('/')
   expect(await openSettings(page), 'settings should open after dismissing first-run dialogs').toBe(true)
