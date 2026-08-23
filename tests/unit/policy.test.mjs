@@ -95,3 +95,36 @@ test('applyToRead rewrites order and label when policy applies', () => {
   assert.equal(raw('api-retry').options.order, 95)
 })
 
+test('setLabel with an empty/whitespace string clears the override', () => {
+  const { test } = fresh()
+  test.policy.setLabel('models', '接管')
+  assert.equal(test.policy.labelFor('models'), '接管')
+  test.policy.setLabel('models', '')
+  assert.equal(test.policy.labelFor('models'), undefined)
+  test.policy.setLabel('api-retry', '接管')
+  test.policy.setLabel('api-retry', '   ')
+  assert.equal(test.policy.labelFor('api-retry'), undefined)
+})
+
+test('readSections reports the custom label and the original label', () => {
+  const { test } = fresh()
+  test.policy.setLabel('models', '模型接管')
+  const rows = test.readSections()
+  const model = rows.find((row) => row.id === 'models')
+  assert.equal(model.label, '模型接管')
+  assert.equal(model.originalLabel, '模型')
+  // sibling untouched, original label still the registered one
+  const retry = rows.find((row) => row.id === 'api-retry')
+  assert.equal(retry.label, 'API 重试')
+  assert.equal(retry.originalLabel, 'API 重试')
+})
+
+test('nav read path reflects the custom label', () => {
+  const { test, slots } = fresh()
+  test.policy.setLabel('models', '接管模型')
+  const model = slots.entries('settings.section').find((entry) => entry.options.id === 'models')
+  assert.equal(typeof model.options.label, 'function')
+  assert.equal(model.options.label(), '接管模型')
+})
+
+

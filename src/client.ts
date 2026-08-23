@@ -127,6 +127,7 @@ interface Policy {
 interface SectionRow {
   id: string
   label: string
+  originalLabel: string
   registrant?: string
   order: number
   hidden: boolean
@@ -160,6 +161,8 @@ const zh = {
   noSections: '暂无已注册的设置分区',
   selfNote: '本分区由 dsh-settings-manager 提供，不可隐藏。',
   dragHint: '拖拽调整顺序',
+  rename: '改名',
+  renamePlaceholder: '输入新名称…',
 }
 const en = {
   nav: 'Settings Manager',
@@ -174,6 +177,8 @@ const en = {
   noSections: 'No settings sections registered',
   selfNote: 'Provided by dsh-settings-manager; cannot be hidden.',
   dragHint: 'Drag to reorder',
+  rename: 'Rename',
+  renamePlaceholder: 'Enter new name…',
 }
 
 /* ------------------------------------------------------------------ *
@@ -331,7 +336,8 @@ function createPolicy(): Policy {
       if (dirty) changed()
     },
     setLabel(id, label) {
-      if (typeof label === 'string' && label.length > 0) state.labels[id] = label
+      const value = typeof label === 'string' ? label.trim() : ''
+      if (value.length > 0) state.labels[id] = value
       else delete state.labels[id]
       changed()
     },
@@ -542,6 +548,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '11px', lineHeight: '15px', color: 'var(--dsw-alias-label-caption)',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
+  renameInput: {
+    flex: '1', minWidth: 0, fontSize: '13px', lineHeight: '18px', padding: '2px 8px',
+    color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-2)',
+    border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '6px', outline: 'none',
+  },
   rowActions: { display: 'flex', alignItems: 'center', gap: '2px', flex: 'none' },
   iconBtn: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
@@ -575,6 +586,7 @@ function svgIcon(name: string): React.ReactElement {
     up: () => paths(['m5 9 3-3 3 3']),
     down: () => paths(['m5 7 3 3 3-3']),
     reset: () => paths(['M3 12a9 9 0 1 0 2.64-6.36L3 8', 'M3 3v5h5']),
+    pencil: () => paths(['M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z']),
   }
   // Unknown name → empty svg (never throw).
   return React.createElement('svg', SVG_COMMON, content[name] ? content[name]() : null)
@@ -622,6 +634,10 @@ function createManagerSection(env: ManagerEnv): React.FC {
     // Y (in list coords) of the single insertion-indicator line; null = hidden.
     const [indicatorY, setIndicatorY] = React.useState<number | null>(null)
     const listRef = React.useRef<HTMLUListElement | null>(null)
+    // Inline rename: editingId = row currently editing; draft = input value.
+    const editingIdRef = React.useRef<string | null>(null)
+    const [editingId, setEditingId] = React.useState<string | null>(null)
+    const [draft, setDraft] = React.useState('')
 
     React.useEffect(() => {
       let offSlot: () => void = () => {}
@@ -646,6 +662,36 @@ function createManagerSection(env: ManagerEnv): React.FC {
         setOverPlace(null)
         setIndicatorY(null)
       }
+    }
+
+    /** Enter inline-rename for a row, seeding the input with its current name. */
+    function startEdit(row: SectionRow): void {
+      editingIdRef.current = row.id
+      setEditingId(row.id)
+      setDraft(row.label)
+    }
+
+    /**
+     * Commit the rename. An empty/whitespace value or a value identical to the
+     * plugin's original name clears the override (back to the original). The
+     * ref guards against the blur that fires right after Enter/Escape unmounts
+     * the input — only the first caller acts.
+     */
+    function commitEdit(id: string): void {
+      if (editingIdRef.current !== id) return
+      editingIdRef.current = null
+      const row = rows.find((r) => r.id === id)
+      const value = draft.trim()
+      if (row && value !== '' && value !== row.originalLabel) policy.setLabel(id, value)
+      else policy.setLabel(id, '')
+      setEditingId(null)
+      setDraft('')
+    }
+
+    function cancelEdit(): void {
+      editingIdRef.current = null
+      setEditingId(null)
+      setDraft('')
     }
 
     /** Insertion line TOP in list coordinates for a target row rect + side.
@@ -740,16 +786,33 @@ function createManagerSection(env: ManagerEnv): React.FC {
 
     function renderRow(row: SectionRow, index: number): React.ReactElement {
       const isOwn = row.id === OWN_ID
-      const dragging = dragId.current === row.id
+      const editing = editingId === row.id
+      const dragging = !editing && dragId.current === row.id
       const className = ['dsm-row', dragging ? 'dsm-row-dragging' : ''].filter(Boolean).join(' ')
       const prev = rows[index - 1]
       const next = rows[index + 1]
+
+      const labelNode = editing
+        ? React.createElement('input', {
+            className: 'dsm-rename-input',
+            autoFocus: true,
+            value: draft,
+            style: styles.renameInput,
+            placeholder: t('renamePlaceholder'),
+            onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(e.target.value),
+            onBlur: () => commitEdit(row.id),
+            onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') commitEdit(row.id)
+              else if (e.key === 'Escape') cancelEdit()
+            },
+          })
+        : React.createElement('span', { style: styles.label }, row.label)
 
       return React.createElement(
         'li',
         {
           key: row.id,
-          draggable: true,
+          draggable: !editing,
           className,
           style: styles.row,
           onDragStart: (e: React.DragEvent<HTMLLIElement>) => handleDragStart(e, row.id),
@@ -764,7 +827,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
           React.createElement(
             'span',
             { style: styles.labelLine },
-            React.createElement('span', { style: styles.label }, row.label),
+            labelNode,
             row.hidden ? React.createElement('span', { style: styles.tag }, t('hiddenTag')) : null,
           ),
           React.createElement(
@@ -815,6 +878,15 @@ function createManagerSection(env: ManagerEnv): React.FC {
               onClick: () => reorder(row.id, next.id, 'after'),
             },
             svgIcon('down'),
+          ),
+          React.createElement(
+            'button',
+            {
+              type: 'button', className: 'dsm-icon-btn', title: t('rename'), 'aria-label': t('rename'),
+              style: styles.iconBtn, disabled: editing,
+              onClick: () => startEdit(row),
+            },
+            svgIcon('pencil'),
           ),
           React.createElement(
             'button',
@@ -933,14 +1005,18 @@ export function apply(ctx: Context): void {
       entries = []
     }
     return entries
-      .map((entry, seq) => ({
-        id: entry.options.id,
-        label: resolveLabel(entry.options.label) || entry.options.id,
-        registrant: entry.options.registrant,
-        order: policy.effectiveOrder(entry.options.id, entry.options.order),
-        hidden: policy.isHidden(entry.options.id),
-        seq,
-      }))
+      .map((entry, seq) => {
+        const originalLabel = resolveLabel(entry.options.label) || entry.options.id
+        return {
+          id: entry.options.id,
+          label: policy.labelFor(entry.options.id) ?? originalLabel,
+          originalLabel,
+          registrant: entry.options.registrant,
+          order: policy.effectiveOrder(entry.options.id, entry.options.order),
+          hidden: policy.isHidden(entry.options.id),
+          seq,
+        }
+      })
       .sort((a, b) => a.order - b.order || a.seq - b.seq)
   }
 

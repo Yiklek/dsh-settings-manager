@@ -119,8 +119,7 @@ test('e2e: toggling the switch hides the section from the nav data and back', as
   }
 })
 
-test('e2e: reset-all clears the policy and restores the original nav order', async () => {
-  const { env, slots, root } = await mount()
+test('e2e: reset-all clears the policy and restores the original nav order', async () => {  const { env, slots, root } = await mount()
   try {
     // Effective nav order (like the shell): read patched entries, sort by order.
     const navIds = () =>
@@ -152,3 +151,59 @@ test('e2e: reset-all clears the policy and restores the original nav order', asy
     root.unmount()
   }
 })
+
+test('e2e: renaming a section updates the nav and the panel label', async () => {
+  const { slots, test, root } = await mount()
+  try {
+    // Effective nav label of a section, exactly like the shell renders it.
+    const navLabel = (id) => {
+      const entry = slots.entries('settings.section').find((e) => e.options.id === id)
+      return typeof entry.options.label === 'function' ? entry.options.label() : entry.options.label
+    }
+
+    // Click the pencil on the "模型" row.
+    const modelRow = rowById('模型')
+    const pencil = [...modelRow.querySelectorAll('.dsm-icon-btn')].find(
+      (b) => b.getAttribute('aria-label') === '改名' || b.getAttribute('aria-label') === 'Rename',
+    )
+    await act(async () => pencil.click())
+    await flush()
+
+    // An input replaces the label. Drive React's onChange directly through its
+    // props handle (the native-input simulation is unreliable under jsdom +
+    // React 18's value tracker), then press Enter to commit.
+    const input = modelRow.querySelector('.dsm-rename-input')
+    assert.ok(input, 'rename input appears')
+    const propsKey = Object.keys(input).find((k) => k.startsWith('__reactProps'))
+    assert.ok(propsKey, 'react props handle present')
+    await act(async () => {
+      input[propsKey].onChange({ target: { value: '接管模型' } })
+    })
+    await flush()
+    await act(async () => {
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await flush()
+    await act(async () => {
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await flush()
+
+    // Nav + panel both reflect the custom name.
+    assert.equal(navLabel('models'), '接管模型')
+    const row = rowById('接管模型')
+    assert.ok(row, 'panel row shows the renamed label')
+    assert.equal(row.textContent.includes('模型'), true, 'original name still in the meta line')
+
+    // Reset the row → custom name reverts to the original.
+    const resetBtn = [...row.querySelectorAll('.dsm-icon-btn')].find(
+      (b) => b.getAttribute('aria-label') === '重置' || b.getAttribute('aria-label') === 'Reset',
+    )
+    await act(async () => resetBtn.click())
+    await flush()
+    assert.equal(navLabel('models'), '模型')
+  } finally {
+    root.unmount()
+  }
+})
+

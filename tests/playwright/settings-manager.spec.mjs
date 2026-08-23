@@ -149,3 +149,41 @@ test('reset-all restores the original nav order after a reorder', async ({ page 
   await dialog.locator('.dsm-reset-all').click()
   await expect.poll(async () => (await orderOf('模型')) === modelsBefore).toBe(true)
 })
+
+test('rename changes the section name in the nav and persists across reload', async ({ page }) => {
+  await page.goto('/')
+  expect(await openSettings(page), 'settings should open after dismissing first-run dialogs').toBe(true)
+
+  const nav = page.locator('[role="dialog"] nav')
+  await nav.getByRole('button', { name: '设置编排' }).click()
+  const dialog = page.locator('[role="dialog"]')
+  const rows = dialog.locator('li')
+
+  // Open the rename editor on the "模型" row (id `models`, shown in the meta
+  // line) via the pencil icon. The plain hasText filter would also match
+  // 模型能力与档位, so anchor on the unique id.
+  const modelRow = dialog.locator('li').filter({ hasText: 'models' })
+  await modelRow.getByRole('button', { name: '改名' }).click()
+  const input = dialog.locator('.dsm-rename-input')
+  await expect(input).toBeVisible()
+
+  const renamed = `模型·${Date.now()}`
+  await input.fill(renamed)
+  await input.press('Enter')
+
+  // The nav now shows the custom name (persisted live).
+  await expect(nav.getByRole('button', { name: renamed })).toBeVisible()
+
+  // Reload → still applied (localStorage persistence).
+  await page.reload()
+  expect(await openSettings(page), 'settings should re-open after reload').toBe(true)
+  await expect(nav.getByRole('button', { name: renamed })).toBeVisible()
+
+  // Restore: reset the row reverts the name.
+  await nav.getByRole('button', { name: '设置编排' }).click()
+  const renamedRow = dialog.locator('li').filter({ hasText: renamed })
+  await renamedRow.getByRole('button', { name: '重置' }).click()
+  await expect(nav.getByRole('button', { name: renamed })).toHaveCount(0)
+  await expect(nav.getByRole('button', { name: '模型', exact: true })).toBeVisible()
+})
+
