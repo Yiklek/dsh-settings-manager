@@ -1,0 +1,17 @@
+# dsh-settings-manager bundle patch
+#
+# Mount anchor for the host half. The real work happens in the browser half
+# (src/client.js): it patches the client slot registry so every
+# `settings.section` registration flows through the manager policy, and
+# contributes its own "Settings Manager" section to the global Settings
+# dialog. The host half intentionally keeps no state.
+#
+# Install with the official CLI:
+#
+#   dsh plugin --profile <name> add dsh-settings-manager
+#
+# (or add a file: dependency in the profile package.json and append the
+# bundle to dsh.profile.bundles).
+- insert:
+    - id: settings-manager
+      name: 'dsh-settings-manager'
