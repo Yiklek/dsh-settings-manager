@@ -42,13 +42,20 @@ pnpm install
 
 重启 `dsh web` 后生效。
 
-## 验证
+## 测试
+
+三层测试，覆盖逻辑、组件交互、真实浏览器集成：
 
 ```bash
-npm run verify   # node scripts/verify.mjs —— 32 项逻辑检查
+npm run test            # UT + e2e 冒烟（node:test，含 jsdom 真实渲染组件）
+npm run test:unit       # 仅单元测试：policy / reorder / patches
+npm run test:e2e        # 仅 e2e 冒烟：jsdom 里挂载管理面板并驱动开关/排序/重置
+npm run test:playwright # 真实浏览器（本机 Edge）对运行中的 DSH GUI 做端到端
 ```
 
-验证脚本在沙箱里模拟客户端模块系统与一个最小 SlotRegistry 服务，覆盖：补丁安装、注册经过、读路径隐藏/重排/改名、`entriesOfSlot` 身份安全（渲染器 isLive 契约）、localStorage 持久化、bump 无残留、自身分区不可隐藏、reset 恢复原始值、disposer 契约。
+- **UT（`tests/unit/`）**：在 VM 沙箱里加载客户端 bundle（`window.__ModuleLoader__`），通过 `__test` 缝测策略存储、reorder 原语、三个槽位补丁（注册经过、读路径隐藏/重排/改名、`entriesOfSlot` 身份安全、bump 无残留、localStorage 持久化、reset/resetAll、自身分区保护）。
+- **e2e 冒烟（`tests/e2e/`）**：jsdom + react-dom 真实渲染 `ManagerSection`，驱动开关隐藏/显示、↓ 重排、全部重置，验证实时响应与策略持久化。
+- **Playwright（`tests/playwright/`）**：用本机 Microsoft Edge（`channel: 'msedge'`）连到活动 DSH GUI（`DSH_WEB_URL` 或 `DSH_PORT`，默认 `http://127.0.0.1:3080`），验证“设置编排”出现在导航顶部、面板按分区渲染、开关/排序/重置真实生效。首启/引导对话框按 `dsh-web-profile` CI 的循环 dismiss 方式跳过。每个用例用独立浏览器上下文（localStorage 隔离），不污染你的真实 profile。
 
 ## 限制与说明
 
@@ -64,7 +71,7 @@ npm run verify   # node scripts/verify.mjs —— 32 项逻辑检查
 src/host.mjs     宿主半区（挂载锚点，无状态）
 src/client.js    浏览器半区 bundle（策略存储 + 三个补丁 + 管理面板，零构建手写）
 cordis.patch.yml 打包挂载声明
-scripts/verify.mjs  逻辑验证
+tests/           单元测试（node:test）、e2e 冒烟（jsdom+react）、Playwright（Edge）
 ```
 
 ## License

@@ -16,7 +16,17 @@
     "LICENSE"
   ],
   "scripts": {
-    "verify": "node scripts/verify.mjs"
+    "verify": "node --test",
+    "test": "node --test",
+    "test:unit": "node --test \"tests/unit/*.test.mjs\"",
+    "test:e2e": "node --test \"tests/e2e/*.test.mjs\"",
+    "test:playwright": "playwright test --config tests/playwright/playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0-alpha-2026-08-05",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "dsh": {
     "bundle": {
