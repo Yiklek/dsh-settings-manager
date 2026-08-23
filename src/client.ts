@@ -583,8 +583,11 @@ function svgIcon(name: string): React.ReactElement {
   const paths = (ds: string[]) => ds.map((d, i) => React.createElement('path', { key: i, d }))
   const content: Record<string, () => React.ReactNode[]> = {
     grip: () => [...circles(9, [5, 12, 19]), ...circles(15, [5, 12, 19])],
-    up: () => paths(['m5 9 3-3 3 3']),
-    down: () => paths(['m5 7 3 3 3-3']),
+    // Lucide chevron-up / chevron-down: centered 12x6 strokes that visually
+    // match the weight of the reset arc and the pencil shape (the old tiny
+    // top-left chevrons looked smaller than the neighboring icons).
+    up: () => paths(['m18 15-6-6-6 6']),
+    down: () => paths(['m6 9 6 6 6-6']),
     reset: () => paths(['M3 12a9 9 0 1 0 2.64-6.36L3 8', 'M3 3v5h5']),
     pencil: () => paths(['M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z']),
   }
