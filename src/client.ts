@@ -648,12 +648,14 @@ function createManagerSection(env: ManagerEnv): React.FC {
       }
     }
 
-    /** Insertion line Y in list coordinates for a target row rect + side. */
+    /** Insertion line TOP in list coordinates for a target row rect + side.
+     *  The line is 2px tall, so its center lands on the gap midpoint (a 4px
+     *  gap: before → 3px above the row's top edge, after → 1px below the
+     *  row's bottom edge). */
     function computeIndicatorY(rect: DOMRect, place: Place): number | null {
       const listRect = listRef.current ? listRef.current.getBoundingClientRect() : null
       if (!listRect) return null
-      // Center the line in the 4px row gap: 2px beyond the row's outer edge.
-      return place === 'before' ? rect.top - listRect.top - 2 : rect.bottom - listRect.top + 2
+      return place === 'before' ? rect.top - listRect.top - 3 : rect.bottom - listRect.top + 1
     }
 
     function handleDragStart(e: React.DragEvent<HTMLLIElement>, id: string): void {
