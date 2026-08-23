@@ -197,18 +197,14 @@ const PANEL_CSS = [
   '.dsm-switch:disabled { opacity: .5; cursor: default; }',
   // Drag feedback via classes (not inline styles — see styles.row comment).
   '.dsm-row-dragging { opacity: .4; }',
-  // Insertion gap indicator: a line at the top (before) or bottom (after) of
-  // the row being hovered, showing exactly where the dragged section lands.
-  // Blue (state-business-primary) reads as a placement/interaction cue rather
-  // than success (state-success-primary).
-  '.dsm-row { position: relative; }',
-  '.dsm-row.dsm-drop-before::before, .dsm-row.dsm-drop-after::after {',
-  '  content: ""; position: absolute; left: 2px; right: 2px; height: 2px;',
+  // Single insertion indicator element, positioned in the row gap at the
+  // exact spot where the dragged section will land. Blue (business-primary)
+  // reads as a placement cue rather than success.
+  '.dsm-drop-indicator {',
+  '  position: absolute; left: 2px; right: 2px; height: 2px;',
   '  border-radius: 1px; background: var(--dsw-alias-state-business-primary);',
-  '  z-index: 1;',
+  '  z-index: 2; pointer-events: none;',
   '}',
-  '.dsm-row.dsm-drop-before::before { top: -3px; }',
-  '.dsm-row.dsm-drop-after::after { bottom: -3px; }',
 ].join('\n')
 
 function insertStyles(css: string): () => void {
@@ -513,7 +509,10 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--dsw-alias-bg-layer-1)',
     border: '1px solid var(--dsw-alias-border-l2)',
   },
-  list: { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '4px' },
+  list: {
+    listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '4px',
+    position: 'relative',
+  },
   row: {
     display: 'flex', alignItems: 'center', gap: '10px',
     padding: '7px 10px', borderRadius: '10px',
@@ -620,6 +619,9 @@ function createManagerSection(env: ManagerEnv): React.FC {
     const dragId = React.useRef<string | null>(null)
     const [overId, setOverId] = React.useState<string | null>(null)
     const [overPlace, setOverPlace] = React.useState<Place | null>(null)
+    // Y (in list coords) of the single insertion-indicator line; null = hidden.
+    const [indicatorY, setIndicatorY] = React.useState<number | null>(null)
+    const listRef = React.useRef<HTMLUListElement | null>(null)
 
     React.useEffect(() => {
       let offSlot: () => void = () => {}
@@ -638,6 +640,22 @@ function createManagerSection(env: ManagerEnv): React.FC {
 
     const rows = readSections()
 
+    function clearDragTarget(): void {
+      if (overId !== null || overPlace !== null || indicatorY !== null) {
+        setOverId(null)
+        setOverPlace(null)
+        setIndicatorY(null)
+      }
+    }
+
+    /** Insertion line Y in list coordinates for a target row rect + side. */
+    function computeIndicatorY(rect: DOMRect, place: Place): number | null {
+      const listRect = listRef.current ? listRef.current.getBoundingClientRect() : null
+      if (!listRect) return null
+      // Center the line in the 4px row gap: 2px beyond the row's outer edge.
+      return place === 'before' ? rect.top - listRect.top - 2 : rect.bottom - listRect.top + 2
+    }
+
     function handleDragStart(e: React.DragEvent<HTMLLIElement>, id: string): void {
       dragId.current = id
       try {
@@ -651,12 +669,8 @@ function createManagerSection(env: ManagerEnv): React.FC {
 
     function handleDragOver(e: React.DragEvent<HTMLLIElement>, id: string): void {
       if (dragId.current === id) {
-        // Over the source row: don't allow a drop here, and clear any
-        // lingering highlight.
-        if (overId !== null || overPlace !== null) {
-          setOverId(null)
-          setOverPlace(null)
-        }
+        // Over the source row: don't allow a drop here.
+        clearDragTarget()
         return
       }
       e.preventDefault()
@@ -665,36 +679,48 @@ function createManagerSection(env: ManagerEnv): React.FC {
       } catch (error) {
         /* dataTransfer may be unavailable */
       }
-      if (overId !== id) setOverId(id)
-      // Track the insertion side (before/after) live so the gap indicator
-      // shows exactly where the row will land. Hysteresis keeps it stable.
       const rect = e.currentTarget.getBoundingClientRect()
       const place = resolvePlace(e.clientY, rect, overPlace)
+      if (overId !== id) setOverId(id)
       if (overPlace !== place) setOverPlace(place)
+      const y = computeIndicatorY(rect, place)
+      if (indicatorY !== y) setIndicatorY(y)
     }
 
-    function handleDragLeave(e: React.DragEvent<HTMLLIElement>): void {
-      // Clear the highlight once the pointer leaves this row entirely
-      // (dragging over another row re-sets it). relatedTarget check avoids
-      // flicker when moving between the row's own child elements.
-      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-        if (overId !== null || overPlace !== null) {
-          setOverId(null)
-          setOverPlace(null)
-        }
+    // List-level: keep the drop allowed over the gaps, and only clear when
+    // leaving the whole list — so the indicator never blinks while the pointer
+    // crosses a 4px row gap.
+    function handleListDragOver(e: React.DragEvent<HTMLUListElement>): void {
+      e.preventDefault()
+      try {
+        e.dataTransfer.dropEffect = 'move'
+      } catch (error) {
+        /* dataTransfer may be unavailable */
       }
+    }
+    function handleListDragLeave(e: React.DragEvent<HTMLUListElement>): void {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) clearDragTarget()
+    }
+    function handleListDrop(e: React.DragEvent<HTMLUListElement>): void {
+      e.preventDefault()
+      const movedId = dragId.current || (e.dataTransfer && e.dataTransfer.getData('text/plain'))
+      const targetId = overId
+      const place = overPlace
+      dragId.current = null
+      clearDragTarget()
+      force()
+      if (!movedId || !targetId || !place) return
+      reorder(movedId, targetId, place)
     }
 
     function handleDrop(e: React.DragEvent<HTMLLIElement>, id: string): void {
       e.preventDefault()
       e.stopPropagation()
       // Prefer the ref; fall back to the dataTransfer payload in case a
-      // dragstart didn't register dragId (would otherwise show the highlight
-      // but never move).
+      // dragstart didn't register dragId.
       const movedId = dragId.current || (e.dataTransfer && e.dataTransfer.getData('text/plain'))
       dragId.current = null
-      setOverId(null)
-      setOverPlace(null)
+      clearDragTarget()
       force()
       if (!movedId || movedId === id) return
       // Use the hysteresis-aware side (matching the shown indicator) so the
@@ -706,24 +732,14 @@ function createManagerSection(env: ManagerEnv): React.FC {
 
     function handleDragEnd(): void {
       dragId.current = null
-      setOverId(null)
-      setOverPlace(null)
+      clearDragTarget()
       force()
     }
 
     function renderRow(row: SectionRow, index: number): React.ReactElement {
       const isOwn = row.id === OWN_ID
       const dragging = dragId.current === row.id
-      const isTarget = overId === row.id
-      const insertSide = isTarget ? overPlace : null
-      const className = [
-        'dsm-row',
-        dragging ? 'dsm-row-dragging' : '',
-        insertSide === 'before' ? 'dsm-drop-before' : '',
-        insertSide === 'after' ? 'dsm-drop-after' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')
+      const className = ['dsm-row', dragging ? 'dsm-row-dragging' : ''].filter(Boolean).join(' ')
       const prev = rows[index - 1]
       const next = rows[index + 1]
 
@@ -736,7 +752,6 @@ function createManagerSection(env: ManagerEnv): React.FC {
           style: styles.row,
           onDragStart: (e: React.DragEvent<HTMLLIElement>) => handleDragStart(e, row.id),
           onDragOver: (e: React.DragEvent<HTMLLIElement>) => handleDragOver(e, row.id),
-          onDragLeave: handleDragLeave,
           onDrop: (e: React.DragEvent<HTMLLIElement>) => handleDrop(e, row.id),
           onDragEnd: handleDragEnd,
         },
@@ -833,7 +848,22 @@ function createManagerSection(env: ManagerEnv): React.FC {
     const body =
       rows.length === 0
         ? React.createElement('p', { style: styles.empty }, t('noSections'))
-        : React.createElement('ul', { style: styles.list }, rows.map((row, index) => renderRow(row, index)))
+        : React.createElement(
+            'ul',
+            {
+              ref: listRef,
+              style: styles.list,
+              onDragOver: handleListDragOver,
+              onDragLeave: handleListDragLeave,
+              onDrop: handleListDrop,
+            },
+            // Single insertion indicator, positioned in the row gap; persists
+            // across the gaps so it never blinks while dragging.
+            indicatorY !== null
+              ? React.createElement('div', { className: 'dsm-drop-indicator', style: { top: indicatorY } })
+              : null,
+            rows.map((row, index) => renderRow(row, index)),
+          )
 
     return React.createElement('div', { style: styles.wrap }, header, body)
   }
