@@ -47,7 +47,6 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     'use strict'
     var module = { exports: {} }
-    var exports = module.exports
 
     const React = require('react')
 
@@ -245,6 +244,26 @@ window.__ModuleLoader__.load({
           else delete state.order[id]
           changed()
         },
+        /**
+         * Batch-set many orders (used by reorder, which rewrites every section
+         * in one pass). Persists + notifies exactly once instead of once per row.
+         * @param orders - map of section id → numeric order (non-numbers delete).
+         */
+        setOrders(orders) {
+          let dirty = false
+          for (const [id, order] of Object.entries(orders)) {
+            if (typeof order === 'number' && Number.isFinite(order)) {
+              if (state.order[id] !== order) {
+                state.order[id] = order
+                dirty = true
+              }
+            } else if (id in state.order) {
+              delete state.order[id]
+              dirty = true
+            }
+          }
+          if (dirty) changed()
+        },
         setLabel(id, label) {
           if (typeof label === 'string' && label.length > 0) state.labels[id] = label
           else delete state.labels[id]
@@ -331,7 +350,19 @@ window.__ModuleLoader__.load({
       }
       if (!proto || typeof proto.register !== 'function') return { installed: false }
 
-      if (proto.__settingsManagerPatched) return { installed: true }
+      // Re-apply (e.g. HMR reload): the patches are already on the prototype.
+      // Rewire the active policy + ctx so they keep working with the fresh
+      // state, and hand back the stored interface — returning a bare
+      // `{ installed: true }` here would make apply() crash on `patch.bump`.
+      if (proto.__settingsManagerPatched) {
+        if (proto.__settingsManagerPolicy) proto.__settingsManagerPolicy.current = policy
+        proto.__settingsManagerCtx = ctx
+        return proto.__settingsManagerInterface || { installed: true }
+      }
+
+      // Patches read the policy through a holder so HMR re-apply can repoint it
+      // without re-installing (and re-nesting) the wrappers.
+      const policyHolder = { current: policy }
 
       const origRegister = proto.register
       const origEntries = proto.entries
@@ -361,18 +392,19 @@ window.__ModuleLoader__.load({
       proto.entries = function entries(key) {
         const rows = origEntries.call(this, key)
         if (key !== SECTION_SLOT) return rows
+        const p = policyHolder.current
         const out = []
         for (const entry of rows) {
-          if (policy.isHidden(entry.options.id)) continue
-          const order = policy.orderFor(entry.options.id)
-          const label = policy.labelFor(entry.options.id)
+          if (p.isHidden(entry.options.id)) continue
+          const order = p.orderFor(entry.options.id)
+          const label = p.labelFor(entry.options.id)
           if (order === undefined && label === undefined) {
             out.push(entry)
             continue
           }
           out.push({
             ...entry,
-            options: policy.applyToRead(entry.options),
+            options: p.applyToRead(entry.options),
           })
         }
         return out
@@ -383,18 +415,18 @@ window.__ModuleLoader__.load({
       proto.entriesOfSlot = function entriesOfSlot(key) {
         const rows = origEntriesOfSlot.call(this, key)
         if (key !== SECTION_SLOT) return rows
-        return rows.filter((entry) => !policy.isHidden(entry.options.id))
+        return rows.filter((entry) => !policyHolder.current.isHidden(entry.options.id))
       }
 
       proto.__settingsManagerPatched = true
 
-      return {
+      const iface = {
         installed: true,
         origEntries,
         inventory,
         bump() {
           try {
-            const slots = ctx.get('slots')
+            const slots = (proto.__settingsManagerCtx || ctx).get('slots')
             if (!slots) return
             const disposer = slots.register(
               { name: SECTION_SLOT, id: TOUCH_ID, order: 1e9, priority: 100, label: () => '' },
@@ -406,11 +438,11 @@ window.__ModuleLoader__.load({
           }
         },
       }
+      proto.__settingsManagerPolicy = policyHolder
+      proto.__settingsManagerCtx = ctx
+      proto.__settingsManagerInterface = iface
+      return iface
     }
-
-    /* ------------------------------------------------------------------ *
-     * Management section
-     * ------------------------------------------------------------------ */
 
     /* ------------------------------------------------------------------ *
      * Management section — styled with the shell's design tokens so it
@@ -499,7 +531,8 @@ window.__ModuleLoader__.load({
         down: () => paths(['m5 7 3 3 3-3']),
         reset: () => paths(['M3 12a9 9 0 1 0 2.64-6.36L3 8', 'M3 3v5h5']),
       }[name]
-      return React.createElement('svg', common, content())
+      // Unknown name → empty svg (never throw).
+      return React.createElement('svg', common, content ? content() : null)
     }
 
     function resolveLabel(label) {
@@ -554,6 +587,11 @@ window.__ModuleLoader__.load({
             return
           }
           e.preventDefault()
+          try {
+            e.dataTransfer.dropEffect = 'move'
+          } catch (error) {
+            /* dataTransfer may be unavailable */
+          }
           if (overId !== id) setOverId(id)
         }
 
@@ -786,7 +824,11 @@ window.__ModuleLoader__.load({
           if (ins === -1) return
           if (place === 'after') ins += 1
           list.splice(ins, 0, movedId)
-          list.forEach((id, index) => policy.setOrder(id, index * 10))
+          const orders = {}
+          list.forEach((id, index) => {
+            orders[id] = index * 10
+          })
+          policy.setOrders(orders)
         }
 
         const env = { slots, policy, readSections, reorder, reset: policy.reset, resetAll: policy.resetAll, t }
@@ -814,6 +856,7 @@ window.__ModuleLoader__.load({
             policy,
             readSections,
             reorder,
+            setOrders: policy.setOrders,
             reset: policy.reset,
             resetAll: policy.resetAll,
             patch,

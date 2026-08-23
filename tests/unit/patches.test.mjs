@@ -82,3 +82,28 @@ test('hidden section is restored live by un-hiding', () => {
   test.policy.setHidden('models', false)
   assert.ok(navIds().includes('models'))
 })
+
+test('re-applying the plugin (HMR) does not crash and rewires the policy', () => {
+  const { plugin, slots, ctx } = fresh()
+  // Second apply simulates an HMR reload. Before the fix this crashed on
+  // `patch.bump is not a function` (the already-patched branch returned a bare
+  // `{ installed: true }`), and the fresh policy never reached the patches.
+  plugin.apply(ctx)
+  assert.ok(plugin.__test, 'test seam survives re-apply')
+  // The fresh policy now drives the (already-installed) patches.
+  plugin.__test.policy.setHidden('models', true)
+  assert.ok(!slots.entries('settings.section').some((e) => e.options.id === 'models'))
+  plugin.__test.policy.setHidden('models', false)
+  assert.ok(slots.entries('settings.section').some((e) => e.options.id === 'models'))
+})
+
+test('setOrders batches many order writes into one change', () => {
+  const { test, slots } = fresh()
+  const before = slots.getVersion('settings.section')
+  test.setOrders({ 'general': 0, 'models': 10, 'api-retry': 20 })
+  const after = slots.getVersion('settings.section')
+  // exactly one bump (one register/dispose pair) despite three writes
+  assert.equal(after - before, 2, 'one bump = version +2')
+  assert.equal(test.policy.orderFor('api-retry'), 20)
+  assert.equal(test.policy.orderFor('models'), 10)
+})
