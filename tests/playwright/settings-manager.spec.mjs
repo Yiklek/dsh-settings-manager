@@ -108,13 +108,17 @@ test('drag & drop moves a section and clears the drop highlight', async ({ page 
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
   await page.mouse.down()
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 15 })
+
+  // Mid-drag: a gap insertion indicator is shown on the hovered row.
+  await expect(dialog.locator('li.dsm-drop-before, li.dsm-drop-after')).toHaveCount(1)
+
   await page.mouse.up()
 
   // The row moved (down one slot)…
   await expect.poll(async () => (await orderOf('设置编排')) > before).toBe(true)
 
-  // …and no row keeps the drop-target highlight after the drop.
-  await expect(dialog.locator('li.dsm-drop-target')).toHaveCount(0)
+  // …and no gap insertion indicator remains after the drop.
+  await expect(dialog.locator('li.dsm-drop-before, li.dsm-drop-after')).toHaveCount(0)
 
   // Clean up: restore the original order so later runs start from a clean slate.
   await dialog.locator('.dsm-reset-all').click()

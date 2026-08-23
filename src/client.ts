@@ -197,7 +197,16 @@ const PANEL_CSS = [
   '.dsm-switch:disabled { opacity: .5; cursor: default; }',
   // Drag feedback via classes (not inline styles — see styles.row comment).
   '.dsm-row-dragging { opacity: .4; }',
-  '.dsm-row.dsm-drop-target { border-color: var(--dsw-alias-border-l2); box-shadow: 0 0 0 1px var(--dsw-alias-border-l2); }',
+  // Insertion gap indicator: a line at the top (before) or bottom (after) of
+  // the row being hovered, showing exactly where the dragged section lands.
+  '.dsm-row { position: relative; }',
+  '.dsm-row.dsm-drop-before::before, .dsm-row.dsm-drop-after::after {',
+  '  content: ""; position: absolute; left: 2px; right: 2px; height: 2px;',
+  '  border-radius: 1px; background: var(--dsw-alias-state-success-primary);',
+  '  z-index: 1;',
+  '}',
+  '.dsm-row.dsm-drop-before::before { top: -3px; }',
+  '.dsm-row.dsm-drop-after::after { bottom: -3px; }',
 ].join('\n')
 
 function insertStyles(css: string): () => void {
@@ -510,10 +519,10 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--dsw-alias-border-l1)',
     cursor: 'grab',
   },
-  // Drag feedback lives in CSS classes (.dsm-row-dragging / .dsm-drop-target),
-  // NOT inline styles: mixing the `border` shorthand above with a
-  // `borderColor` longhand causes React's inline-style diffing to corrupt the
-  // border when toggling the drop target.
+  // Drag feedback lives in CSS classes (.dsm-row-dragging / .dsm-drop-before
+  // / .dsm-drop-after), NOT inline styles: mixing the `border` shorthand above
+  // with a `borderColor` longhand causes React's inline-style diffing to
+  // corrupt the border when toggling the drop target.
   grip: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
     color: 'var(--dsw-alias-label-caption)', cursor: 'grab', padding: 0, background: 'none', border: 'none',
@@ -593,6 +602,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
     const [, force] = React.useReducer((value: number) => value + 1, 0)
     const dragId = React.useRef<string | null>(null)
     const [overId, setOverId] = React.useState<string | null>(null)
+    const [overPlace, setOverPlace] = React.useState<Place | null>(null)
 
     React.useEffect(() => {
       let offSlot: () => void = () => {}
@@ -626,7 +636,10 @@ function createManagerSection(env: ManagerEnv): React.FC {
       if (dragId.current === id) {
         // Over the source row: don't allow a drop here, and clear any
         // lingering highlight.
-        if (overId !== null) setOverId(null)
+        if (overId !== null || overPlace !== null) {
+          setOverId(null)
+          setOverPlace(null)
+        }
         return
       }
       e.preventDefault()
@@ -636,6 +649,11 @@ function createManagerSection(env: ManagerEnv): React.FC {
         /* dataTransfer may be unavailable */
       }
       if (overId !== id) setOverId(id)
+      // Track the insertion side (before/after) live so the gap indicator
+      // shows exactly where the row will land.
+      const rect = e.currentTarget.getBoundingClientRect()
+      const place: Place = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+      if (overPlace !== place) setOverPlace(place)
     }
 
     function handleDragLeave(e: React.DragEvent<HTMLLIElement>): void {
@@ -643,7 +661,10 @@ function createManagerSection(env: ManagerEnv): React.FC {
       // (dragging over another row re-sets it). relatedTarget check avoids
       // flicker when moving between the row's own child elements.
       if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-        if (overId !== null) setOverId(null)
+        if (overId !== null || overPlace !== null) {
+          setOverId(null)
+          setOverPlace(null)
+        }
       }
     }
 
@@ -656,6 +677,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
       const movedId = dragId.current || (e.dataTransfer && e.dataTransfer.getData('text/plain'))
       dragId.current = null
       setOverId(null)
+      setOverPlace(null)
       force()
       if (!movedId || movedId === id) return
       const rect = e.currentTarget.getBoundingClientRect()
@@ -666,6 +688,7 @@ function createManagerSection(env: ManagerEnv): React.FC {
     function handleDragEnd(): void {
       dragId.current = null
       setOverId(null)
+      setOverPlace(null)
       force()
     }
 
@@ -673,7 +696,13 @@ function createManagerSection(env: ManagerEnv): React.FC {
       const isOwn = row.id === OWN_ID
       const dragging = dragId.current === row.id
       const isTarget = overId === row.id
-      const className = ['dsm-row', dragging ? 'dsm-row-dragging' : '', isTarget ? 'dsm-drop-target' : '']
+      const insertSide = isTarget ? overPlace : null
+      const className = [
+        'dsm-row',
+        dragging ? 'dsm-row-dragging' : '',
+        insertSide === 'before' ? 'dsm-drop-before' : '',
+        insertSide === 'after' ? 'dsm-drop-after' : '',
+      ]
         .filter(Boolean)
         .join(' ')
       const prev = rows[index - 1]
