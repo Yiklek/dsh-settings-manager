@@ -199,10 +199,12 @@ const PANEL_CSS = [
   '.dsm-row-dragging { opacity: .4; }',
   // Insertion gap indicator: a line at the top (before) or bottom (after) of
   // the row being hovered, showing exactly where the dragged section lands.
+  // Blue (state-business-primary) reads as a placement/interaction cue rather
+  // than success (state-success-primary).
   '.dsm-row { position: relative; }',
   '.dsm-row.dsm-drop-before::before, .dsm-row.dsm-drop-after::after {',
   '  content: ""; position: absolute; left: 2px; right: 2px; height: 2px;',
-  '  border-radius: 1px; background: var(--dsw-alias-state-success-primary);',
+  '  border-radius: 1px; background: var(--dsw-alias-state-business-primary);',
   '  z-index: 1;',
   '}',
   '.dsm-row.dsm-drop-before::before { top: -3px; }',
@@ -584,6 +586,21 @@ function resolveLabel(label: string | (() => string) | undefined): string {
   return typeof label === 'string' ? label : ''
 }
 
+/**
+ * Decide the insertion side (before/after) for a pointer Y over a row, with a
+ * hysteresis dead band around the midpoint so the gap indicator doesn't flip
+ * back and forth (flicker/shake) as the cursor crosses the middle of the row.
+ * The current side is kept inside the band; `current` is the side the indicator
+ * is already showing, so the drop lands where the user saw it.
+ */
+function resolvePlace(clientY: number, rect: DOMRect, current: Place | null): Place {
+  const mid = rect.top + rect.height / 2
+  const band = rect.height * 0.2
+  if (clientY < mid - band) return 'before'
+  if (clientY > mid + band) return 'after'
+  return current ?? (clientY < mid ? 'before' : 'after')
+}
+
 /** The environment handed to the manager component. */
 interface ManagerEnv {
   slots: SlotsService
@@ -650,9 +667,9 @@ function createManagerSection(env: ManagerEnv): React.FC {
       }
       if (overId !== id) setOverId(id)
       // Track the insertion side (before/after) live so the gap indicator
-      // shows exactly where the row will land.
+      // shows exactly where the row will land. Hysteresis keeps it stable.
       const rect = e.currentTarget.getBoundingClientRect()
-      const place: Place = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+      const place = resolvePlace(e.clientY, rect, overPlace)
       if (overPlace !== place) setOverPlace(place)
     }
 
@@ -680,8 +697,10 @@ function createManagerSection(env: ManagerEnv): React.FC {
       setOverPlace(null)
       force()
       if (!movedId || movedId === id) return
+      // Use the hysteresis-aware side (matching the shown indicator) so the
+      // drop lands where the user saw the gap line.
       const rect = e.currentTarget.getBoundingClientRect()
-      const place: Place = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+      const place = resolvePlace(e.clientY, rect, overPlace)
       reorder(movedId, id, place)
     }
 
