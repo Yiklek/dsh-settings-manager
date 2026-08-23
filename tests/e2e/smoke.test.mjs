@@ -11,7 +11,7 @@ import { JSDOM } from 'jsdom'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
-import { loadEnv } from '../helpers/load-env.mjs'
+import { loadEnv, SEAM_KEY } from '../helpers/load-env.mjs'
 
 const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', {
   url: 'http://localhost/',
@@ -46,7 +46,7 @@ function setup() {
   slots.register({ name: 'settings.section', id: 'api-retry', order: 95, label: () => 'API 重试' }, () => 'ApiRetry')
   slots.register({ name: 'settings.section', id: 'web-ui', order: 110, label: () => 'Web UI' }, () => 'WebUi')
   plugin.apply(ctx)
-  const test = env.plugin.__test
+  const test = env.vmGlobal[SEAM_KEY]
   return { env, slots, test }
 }
 

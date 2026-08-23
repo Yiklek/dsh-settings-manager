@@ -3,19 +3,22 @@
   "version": "0.1.0",
   "description": "DSH web plugin: manage how other plugins' sections appear in the global Settings dialog — show/hide, reorder, rename — without touching upstream. Every settings.section registration passes through the manager policy (registration-time + read-path interception).",
   "type": "module",
-  "main": "./src/host.mjs",
+  "main": "./lib/host.mjs",
   "exports": {
-    ".": "./src/host.mjs",
-    "./client": "./src/client.js",
+    ".": "./lib/host.mjs",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "lib/",
     "src/",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
     "verify": "node --test",
     "test": "node --test",
     "test:unit": "node --test \"tests/unit/*.test.mjs\"",
@@ -23,10 +26,14 @@
     "test:playwright": "playwright test --config tests/playwright/playwright.config.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
     "@playwright/test": "1.63.0-alpha-2026-08-05",
+    "@types/react": "^18.3.0",
+    "esbuild": "^0.25.0",
     "jsdom": "^26.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.0"
   },
   "dsh": {
     "bundle": {
@@ -51,5 +58,10 @@
     "settings",
     "slots"
   ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "license": "MIT"
 }

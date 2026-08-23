@@ -69,11 +69,16 @@ npm run test:playwright # 真实浏览器（本机 Edge）对运行中的 DSH GU
 ## 结构
 
 ```
-src/host.mjs     宿主半区（挂载锚点，无状态）
-src/client.js    浏览器半区 bundle（策略存储 + 三个补丁 + 管理面板，零构建手写）
+src/client.ts    浏览器半区源码（TS：策略存储 + 三个补丁 + 管理面板）
+src/host.ts      宿主半区源码（TS：挂载锚点，无状态）
+lib/client.js    构建产物：esbuild 打包 + DSH __ModuleLoader__.load 包装（只依赖 react seed）
+lib/host.mjs     构建产物：宿主半区（ESM，import type 已擦除 → 零运行时导入）
+scripts/build.mjs  构建（node scripts/build.mjs）；typecheck 用 pnpm typecheck
 cordis.patch.yml 打包挂载声明
 tests/           单元测试（node:test）、e2e 冒烟（jsdom+react）、Playwright（Edge）
 ```
+
+宿主类型 `import type { Context } from '@deepseek-ai/cordis'` 仅编译期使用，产物零官方运行时导入；`@deepseek-ai/cordis` 作为 devDependency（类型检查用），不在 peerDependencies 里。
 
 ## License
 

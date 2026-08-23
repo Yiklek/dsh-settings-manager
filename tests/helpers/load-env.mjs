@@ -13,7 +13,10 @@ import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { MockSlots } from './mock-slots.mjs'
 
-const BUNDLE = fileURLToPath(new URL('../../src/client.js', import.meta.url))
+const BUNDLE = fileURLToPath(new URL('../../lib/client.js', import.meta.url))
+
+/** Key on the VM global where apply() stashes the test seam (TS port). */
+export const SEAM_KEY = '__DSH_SETTINGS_MANAGER_SEAM__'
 
 /** Minimal React stub used when no real React is provided (UT only). */
 const defaultReact = {
@@ -108,5 +111,5 @@ export function loadEnv({ globals = {}, react, locale, resolveSpecifier } = {}) 
     },
   }
 
-  return { registration, plugin, slots, ctx, localeMock, storage: sandbox.localStorage }
+  return { registration, plugin, slots, ctx, localeMock, storage: sandbox.localStorage, vmGlobal: sandbox }
 }

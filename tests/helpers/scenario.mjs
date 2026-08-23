@@ -3,11 +3,11 @@
  * register base sections (as the shell does before any profile plugin), then
  * apply the manager. Returns the test seam + handy helpers.
  */
-import { loadEnv } from './load-env.mjs'
+import { loadEnv, SEAM_KEY } from './load-env.mjs'
 
 export function setupScenario(globals = {}) {
   const env = loadEnv(globals)
-  const { slots, plugin, ctx } = env
+  const { slots, plugin, ctx, vmGlobal } = env
 
   slots.declare('settings.section')
   slots.register({ name: 'settings.section', id: 'general', order: 0, label: () => '通用设置' }, () => 'General')
@@ -15,7 +15,7 @@ export function setupScenario(globals = {}) {
   slots.register({ name: 'settings.section', id: 'api-retry', order: 95, label: () => 'API 重试' }, () => 'ApiRetry')
 
   plugin.apply(ctx)
-  const test = plugin.__test
+  const test = vmGlobal[SEAM_KEY]
   if (!test) throw new Error('__test seam missing (TEST flag not applied?)')
 
   // The mock register() returns a disposer (like the real API), so capture the

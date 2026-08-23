@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setupScenario } from '../helpers/scenario.mjs'
+import { SEAM_KEY } from '../helpers/load-env.mjs'
 
 function fresh() {
   const s = setupScenario()
@@ -84,16 +85,16 @@ test('hidden section is restored live by un-hiding', () => {
 })
 
 test('re-applying the plugin (HMR) does not crash and rewires the policy', () => {
-  const { plugin, slots, ctx } = fresh()
+  const { plugin, slots, ctx, vmGlobal } = fresh()
   // Second apply simulates an HMR reload. Before the fix this crashed on
   // `patch.bump is not a function` (the already-patched branch returned a bare
   // `{ installed: true }`), and the fresh policy never reached the patches.
   plugin.apply(ctx)
-  assert.ok(plugin.__test, 'test seam survives re-apply')
+  assert.ok(vmGlobal[SEAM_KEY], 'test seam survives re-apply')
   // The fresh policy now drives the (already-installed) patches.
-  plugin.__test.policy.setHidden('models', true)
+  vmGlobal[SEAM_KEY].policy.setHidden('models', true)
   assert.ok(!slots.entries('settings.section').some((e) => e.options.id === 'models'))
-  plugin.__test.policy.setHidden('models', false)
+  vmGlobal[SEAM_KEY].policy.setHidden('models', false)
   assert.ok(slots.entries('settings.section').some((e) => e.options.id === 'models'))
 })
 
