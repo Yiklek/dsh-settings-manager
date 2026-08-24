@@ -53,8 +53,9 @@ import React from 'react'
 const SECTION_SLOT = 'settings.section'
 /** This plugin's own section id (never hidden, so its UI stays reachable). */
 const OWN_ID = 'settings-manager'
-/** localStorage key holding the policy document. */
-const STORAGE_KEY = 'dsh-settings-manager.policy.v1'
+/** The server-side settings namespace (registered by the host half) that
+ *  persists the manager policy document. */
+const SECTION_NS = 'settings-manager'
 /** Locale dictionary namespace. */
 const LOCALE_NS = 'settingsManager'
 /**
@@ -106,12 +107,26 @@ interface LocaleService {
   bind(ns: string): (key: string, params?: unknown) => string
 }
 
+/** The settings wire face of the connection service (the DSH standard seam). */
+interface SettingsWire {
+  describe(request: Record<string, unknown>): Promise<{ namespaces: { ns: string; value: unknown }[] }>
+  replace(request: { ns: string; section: object }): Promise<unknown>
+}
+
+/** The client `connection` service (`@deepseek-ai/dsh-client-connection`). */
+interface ConnectionService {
+  api: { settings: SettingsWire }
+  isLoopback: boolean
+}
+
 /** The plugin's policy API (shared by patches, UI, and the test seam). */
 interface Policy {
   isHidden(id: string): boolean
   orderFor(id: string): number | undefined
   labelFor(id: string): string | undefined
   effectiveOrder(id: string, registeredOrder?: number): number
+  /** Replace the in-memory policy from a server-resolved document (no write). */
+  load(doc: PolicyDoc): void
   setHidden(id: string, hidden: boolean): void
   setOrder(id: string, order: number): void
   setOrders(orders: Record<string, number>): void
@@ -263,32 +278,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function createPolicy(): Policy {
+function createPolicy(persist: (doc: PolicyDoc) => void): Policy {
   const state: PolicyDoc = { hidden: {}, order: {}, labels: {} }
-  try {
-    const raw = globalThis.localStorage ? globalThis.localStorage.getItem(STORAGE_KEY) : null
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw)
-      if (isRecord(parsed)) {
-        if (isRecord(parsed.hidden)) state.hidden = parsed.hidden as Record<string, boolean>
-        if (isRecord(parsed.order)) state.order = parsed.order as Record<string, number>
-        if (isRecord(parsed.labels)) state.labels = parsed.labels as Record<string, string>
-      }
-    }
-  } catch (error) {
-    /* corrupt storage is ignored; policy starts empty */
-  }
+  // Set on the first user mutation: the in-memory state becomes authoritative
+  // and a late server load (describe resolving after the user acted) is ignored
+  // so it can't clobber a fresher change.
+  let mutated = false
 
   const emitter = createEmitter()
   let onChanged: (() => void) | null = null
 
+  // Write the full in-memory policy to the server (fire-and-forget; the in
+  // memory state is the UI's source of truth and is already updated). A
+  // failed write is swallowed — the next change re-sends the whole document.
   function save(): void {
     try {
-      if (globalThis.localStorage) {
-        globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-      }
+      persist({ hidden: { ...state.hidden }, order: { ...state.order }, labels: { ...state.labels } })
     } catch (error) {
-      /* storage full / blocked — keep running with in-memory policy */
+      /* a failed persist must not break a policy mutation */
     }
   }
 
@@ -305,6 +312,13 @@ function createPolicy(): Policy {
   }
 
   return {
+    load(doc) {
+      if (mutated) return
+      state.hidden = isRecord(doc.hidden) ? (doc.hidden as Record<string, boolean>) : {}
+      state.order = isRecord(doc.order) ? (doc.order as Record<string, number>) : {}
+      state.labels = isRecord(doc.labels) ? (doc.labels as Record<string, string>) : {}
+      changed()
+    },
     isHidden(id) {
       return id !== OWN_ID && state.hidden[id] === true
     },
@@ -322,11 +336,13 @@ function createPolicy(): Policy {
     },
     setHidden(id, hidden) {
       if (id === OWN_ID) return
+      mutated = true
       if (hidden) state.hidden[id] = true
       else delete state.hidden[id]
       changed()
     },
     setOrder(id, order) {
+      mutated = true
       if (typeof order === 'number' && Number.isFinite(order)) state.order[id] = order
       else delete state.order[id]
       changed()
@@ -336,10 +352,12 @@ function createPolicy(): Policy {
       for (const [id, order] of Object.entries(orders)) {
         if (typeof order === 'number' && Number.isFinite(order)) {
           if (state.order[id] !== order) {
+            mutated = true
             state.order[id] = order
             dirty = true
           }
         } else if (id in state.order) {
+          mutated = true
           delete state.order[id]
           dirty = true
         }
@@ -347,18 +365,21 @@ function createPolicy(): Policy {
       if (dirty) changed()
     },
     setLabel(id, label) {
+      mutated = true
       const value = typeof label === 'string' ? label.trim() : ''
       if (value.length > 0) state.labels[id] = value
       else delete state.labels[id]
       changed()
     },
     reset(id) {
+      mutated = true
       delete state.hidden[id]
       delete state.order[id]
       delete state.labels[id]
       changed()
     },
     resetAll() {
+      mutated = true
       state.hidden = {}
       state.order = {}
       state.labels = {}
@@ -994,11 +1015,13 @@ function globals(): any {
 }
 
 export const name = 'dsh-settings-manager'
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'connection']
 
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots') as unknown as SlotsService
   if (slots === undefined) return
+
+  const connection = ctx.get('connection') as unknown as ConnectionService | undefined
 
   const locale = ctx.get('locale') as unknown as LocaleService | undefined
   if (locale !== undefined) {
@@ -1017,12 +1040,36 @@ export function apply(ctx: Context): void {
 
   // Policy first, patches second — every registration from here on (including
   // this plugin's own section) flows through the policy.
-  const policy = createPolicy()
+  //
+  // Persist the full policy to the server settings namespace `settings-manager`
+  // (registered by the host half). This follows the DSH settings seam, which is
+  // loopback-only; if the connection/settings wire is unavailable the plugin
+  // degrades to in-memory only (no persistence).
+  const settings = connection && connection.api && connection.api.settings ? connection.api.settings : undefined
+  const persist = settings
+    ? (doc: PolicyDoc): void => {
+        void settings.replace({ ns: SECTION_NS, section: doc as unknown as object }).catch(() => {})
+      }
+    : (): void => {}
+
+  const policy = createPolicy(persist)
   const patch = installPatches(ctx, policy)
   if (!patch.installed) return
   policy.setOnChanged(patch.bump)
   // Force the shell to re-read at least once after patching.
   patch.bump()
+
+  // Load the persisted policy from the server once available (async; the read
+  // path shows plugin defaults until it resolves, then re-reads via the bump).
+  if (settings) {
+    void settings
+      .describe({})
+      .then((description) => {
+        const ns = description.namespaces.find((row) => row.ns === SECTION_NS)
+        if (ns && isRecord(ns.value)) policy.load(ns.value as unknown as PolicyDoc)
+      })
+      .catch(() => {})
+  }
 
   /** Raw inventory: ALL sections (hidden included), policy NOT applied. */
   const readSections = (): SectionRow[] => {

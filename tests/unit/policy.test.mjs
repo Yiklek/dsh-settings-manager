@@ -23,8 +23,8 @@ test('effectiveOrder falls back to the registered order', () => {
   assert.equal(test.policy.effectiveOrder('missing', undefined), 0)
 })
 
-test('setHidden/setOrder/setLabel persist to localStorage', () => {
-  const { test, storage } = fresh()
+test('setHidden/setOrder/setLabel persist to the server settings namespace', () => {
+  const { test, connection } = fresh()
   test.policy.setHidden('api-retry', true)
   test.policy.setOrder('web-ui', 7)
   test.policy.setLabel('models', 'Model List')
@@ -33,10 +33,12 @@ test('setHidden/setOrder/setLabel persist to localStorage', () => {
   assert.equal(test.policy.orderFor('web-ui'), 7)
   assert.equal(test.policy.labelFor('models'), 'Model List')
 
-  const parsed = JSON.parse(storage.getItem('dsh-settings-manager.policy.v1'))
-  assert.equal(parsed.hidden['api-retry'], true)
-  assert.equal(parsed.order['web-ui'], 7)
-  assert.equal(parsed.labels['models'], 'Model List')
+  const persisted = connection._persisted()
+  assert.equal(persisted.hidden['api-retry'], true)
+  assert.equal(persisted.order['web-ui'], 7)
+  assert.equal(persisted.labels['models'], 'Model List')
+  // every mutation fired one server replace against the manager namespace
+  assert.ok(connection._replaceCalls().every((call) => call.ns === 'settings-manager'))
 })
 
 test('hidden/show toggle round-trips', () => {
@@ -66,15 +68,32 @@ test('reset clears only one section', () => {
 })
 
 test('resetAll clears everything', () => {
-  const { test, storage } = fresh()
+  const { test, connection } = fresh()
   test.policy.setHidden('api-retry', true)
   test.policy.setOrder('models', 3)
   test.policy.setLabel('general', 'Renamed')
   test.policy.resetAll()
-  const parsed = JSON.parse(storage.getItem('dsh-settings-manager.policy.v1'))
-  assert.deepEqual(parsed.hidden, {})
-  assert.deepEqual(parsed.order, {})
-  assert.deepEqual(parsed.labels, {})
+  const persisted = connection._persisted()
+  assert.deepEqual(persisted.hidden, {})
+  assert.deepEqual(persisted.order, {})
+  assert.deepEqual(persisted.labels, {})
+})
+
+test('load populates the policy from a server document', () => {
+  const { test } = fresh()
+  test.policy.load({ hidden: { 'api-retry': true }, order: { 'web-ui': 7 }, labels: { models: 'X' } })
+  assert.equal(test.policy.isHidden('api-retry'), true)
+  assert.equal(test.policy.orderFor('web-ui'), 7)
+  assert.equal(test.policy.labelFor('models'), 'X')
+})
+
+test('a late server load is ignored after a user mutation', () => {
+  const { test } = fresh()
+  test.policy.setHidden('api-retry', true)
+  // Simulate apply()'s async describe resolving AFTER the user acted: it must
+  // not clobber the fresher in-memory change.
+  test.policy.load({ hidden: {}, order: {}, labels: {} })
+  assert.equal(test.policy.isHidden('api-retry'), true)
 })
 
 test('applyToRead returns the same object when no policy applies', () => {

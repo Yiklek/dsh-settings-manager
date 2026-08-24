@@ -28,6 +28,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
     "@playwright/test": "1.63.0-alpha-2026-08-05",
     "@types/react": "^18.3.0",
     "esbuild": "^0.25.0",
@@ -45,10 +47,18 @@
     }
   },
   "peerDependencies": {
-    "react": "*"
+    "react": "*",
+    "@deepseek-ai/dsh-settings": "*",
+    "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
     "react": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
       "optional": true
     }
   },

@@ -15,7 +15,7 @@ DSH web 插件：**管理其他插件在「全局设置」对话框中的放置*
 - **i18n**：内置简体中文与英文（`settingsManager` 命名空间，跟随外壳语言，默认回退英文）；
 - 展示每个分区的 id 与来源插件（registrant）。
 
-所有改动**即时生效**，无需重启。策略持久化在浏览器 `localStorage`（`dsh-settings-manager.policy.v1`）。
+所有改动**即时生效**，无需重启。策略通过 **DSH 标准 settings 命名空间**（`settings-manager`）持久化到服务端：host 半区用 `installSettingsSection` 注册命名空间，客户端经 `connection.api.settings` 读写，由 SettingsProvider 落盘（loopback-only，纯服务端）。
 
 ## 原理：拦截槽位注册
 
@@ -68,7 +68,7 @@ npm run test:e2e        # 仅 e2e 冒烟：jsdom 里挂载管理面板并驱动�
 npm run test:playwright # 真实浏览器（本机 Edge）对运行中的 DSH GUI 做端到端
 ```
 
-- **UT（`tests/unit/`）**：在 VM 沙箱里加载客户端 bundle（`window.__ModuleLoader__`），通过 `__test` 缝测策略存储、reorder 原语、改名/标签读写、三个槽位补丁（注册经过、读路径隐藏/重排/改名、`entriesOfSlot` 身份安全、bump 无残留、localStorage 持久化、reset/resetAll、自身分区保护）。
+- **UT（`tests/unit/`）**：在 VM 沙箱里加载客户端 bundle（`window.__ModuleLoader__`），通过 `__test` 缝测策略存储、reorder 原语、改名/标签读写、三个槽位补丁（注册经过、读路径隐藏/重排/改名、`entriesOfSlot` 身份安全、bump 无残留、服务端 settings 持久化（mock connection）、reset/resetAll、自身分区保护）。
 - **e2e 冒烟（`tests/e2e/`）**：jsdom + react-dom 真实渲染 `ManagerSection`，驱动开关隐藏/显示、↓ 重排、全部重置、改名提交/还原，验证实时响应与策略持久化。
 - **Playwright（`tests/playwright/`）**：用本机 Microsoft Edge（`channel: 'msedge'`）连到活动 DSH GUI（`DSH_WEB_URL` 或 `DSH_PORT`，默认 `http://127.0.0.1:3080`），验证“设置编排”出现在导航顶部、面板按分区渲染、开关/排序/重置/拖拽（落点指示线出现与消失）/改名（含刷新后持久）真实生效。首启/引导对话框按 `dsh-web-profile` CI 的循环 dismiss 方式跳过。每个用例用独立浏览器上下文（localStorage 隔离），不污染你的真实 profile。
 
@@ -84,7 +84,7 @@ npm run test:playwright # 真实浏览器（本机 Edge）对运行中的 DSH GU
 
 ```
 src/client.ts    浏览器半区源码（TS：策略存储 + 三个补丁 + 管理面板）
-src/host.ts      宿主半区源码（TS：挂载锚点，无状态）
+src/host.ts      宿主半区源码（TS：注册 `settings-manager` settings 命名空间，服务端持久化）
 lib/client.js    构建产物（gitignore）：esbuild 打包 + DSH __ModuleLoader__.load 包装（只依赖 react seed）
 lib/host.mjs     构建产物（gitignore）：宿主半区（ESM，import type 已擦除 → 零运行时导入）
 scripts/build.mjs  构建（node scripts/build.mjs）；typecheck 用 pnpm typecheck

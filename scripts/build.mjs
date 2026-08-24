@@ -49,12 +49,14 @@ ${bundled}
 `
 writeFileSync(join(lib, 'client.js'), wrapped)
 
-// 2) Host bundle (ESM, node).
+// 2) Host bundle (ESM, node). DSH runtime packages are resolved at runtime
+// from node_modules (they live in the DSH runtime / profile), not bundled.
 await build({
   ...esbuildOptions,
   entryPoints: [join(root, 'src/host.ts')],
   format: 'esm',
   platform: 'node',
+  external: ['@deepseek-ai/*'],
   outfile: join(lib, 'host.mjs'),
   write: true,
 })

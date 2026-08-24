@@ -40,6 +40,44 @@ export function inMemoryStorage() {
 }
 
 /**
+ * Fresh mock `connection` service (the DSH settings wire). The client's policy
+ * persists to `api.settings.replace({ ns:'settings-manager', section })` and
+ * loads from `api.settings.describe({})`. The mock stores the persisted
+ * document in memory so tests can assert what got written / seed what gets read.
+ */
+export function mockConnection(initial = undefined) {
+  let persisted = initial !== undefined ? initial : { hidden: {}, order: {}, labels: {} }
+  const replaceCalls = []
+  return {
+    isLoopback: true,
+    api: {
+      settings: {
+        async describe() {
+          return { namespaces: [{ ns: 'settings-manager', value: persisted }] }
+        },
+        async replace({ ns, section }) {
+          replaceCalls.push({ ns, section: structuredClone(section) })
+          persisted = structuredClone(section)
+          return { ns, value: persisted }
+        },
+      },
+    },
+    /** Current persisted document (what a fresh describe would return). */
+    _persisted() {
+      return persisted
+    },
+    /** Every replace() write the client has fired, in order. */
+    _replaceCalls() {
+      return replaceCalls
+    },
+    /** Seed the server document (what the client loads on startup). */
+    _setPersisted(doc) {
+      persisted = doc
+    },
+  }
+}
+
+/**
  * @param opts.globals - extra VM globals (e.g. jsdom `document`/`localStorage`).
  * @param opts.react  - real React module; the bundle's `require('react')` gets it.
  * @param opts.locale - locale mock; defaults to one that captures the plugin's zh dict.
@@ -87,6 +125,7 @@ export function loadEnv({ globals = {}, react, locale, resolveSpecifier } = {}) 
   // MockSlots.prototype across tests would leak the patch + policy closure
   // between scenarios. A per-call subclass isolates each test.
   const slots = new (class extends MockSlots {})()
+  const connection = mockConnection()
   const localeMock =
     locale ||
     (() => {
@@ -104,6 +143,7 @@ export function loadEnv({ globals = {}, react, locale, resolveSpecifier } = {}) 
     get(name) {
       if (name === 'slots') return slots
       if (name === 'locale') return localeMock
+      if (name === 'connection') return connection
       return undefined
     },
     effect(callback) {
@@ -111,5 +151,5 @@ export function loadEnv({ globals = {}, react, locale, resolveSpecifier } = {}) 
     },
   }
 
-  return { registration, plugin, slots, ctx, localeMock, storage: sandbox.localStorage, vmGlobal: sandbox }
+  return { registration, plugin, slots, ctx, connection, localeMock, storage: sandbox.localStorage, vmGlobal: sandbox }
 }
