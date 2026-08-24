@@ -40,9 +40,9 @@ jobs:
   playwright:
     name: Playwright functional test
     runs-on: ubuntu-latest
-    # Runs only after pkg exists: it installs dsh-web-profile, which consumes the
-    # plugin from the #pkg branch (so the test validates the built distribution).
-    needs: [test, pkg]
+    # Links the plugin from this checkout into an auto-created profile, so it
+    # tests the actual code under test (works on PRs and main).
+    needs: [test]
     env:
       DSH_HOME: /tmp/dsh-home-pw
       DSH_PORT: "3100"
@@ -68,23 +68,10 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Clone dsh-web-profile (base runtime comes transitively from its plugins)
-        run: git clone --depth 1 https://github.com/Yiklek/dsh-web-profile.git /tmp/dsh-web-profile
-
-      - name: Install profile via dsh-web-profile install.sh
-        working-directory: /tmp/dsh-web-profile
+      - name: Create profile & link this plugin (dsh auto-creates the profile)
         run: |
-          ./install.sh web --mode worktree --branch ci-web --force
-          echo "profile: ready at $DSH_HOME/profiles/web"
-
-      - name: Probe dsh CLI (diagnostic)
-        working-directory: ${{ env.DSH_HOME }}/profiles/web
-        run: |
-          echo "--- pwd ---"; pwd
-          echo "--- dump-config ---"
-          pnpm dlx @deepseek-ai/dsh@next --profile web --dump-config > /tmp/dump.yml 2>&1
-          echo "dump exit=$?"
-          echo "--- dump tail ---"; tail -15 /tmp/dump.yml
+          pnpm dlx @deepseek-ai/dsh@next plugin --profile web add "$GITHUB_WORKSPACE"
+          echo "profile ready with linked dsh-settings-manager"
 
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
