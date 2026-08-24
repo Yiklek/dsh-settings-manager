@@ -80,10 +80,11 @@ jobs:
       - name: Probe dsh CLI (diagnostic)
         working-directory: ${{ env.DSH_HOME }}/profiles/web
         run: |
-          pwd
-          ls node_modules/.bin/ 2>/dev/null | grep -i dsh || echo "no dsh bin"
-          pnpm dlx @deepseek-ai/dsh@next --version 2>&1 | tail -20
-          echo "probe exit=$?"
+          echo "--- pwd ---"; pwd
+          echo "--- dump-config ---"
+          pnpm dlx @deepseek-ai/dsh@next --profile web --dump-config > /tmp/dump.yml 2>&1
+          echo "dump exit=$?"
+          echo "--- dump tail ---"; tail -15 /tmp/dump.yml
 
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
