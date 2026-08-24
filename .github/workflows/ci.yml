@@ -14,13 +14,13 @@ jobs:
     name: Typecheck & unit/e2e tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -49,13 +49,13 @@ jobs:
       DSH_WEB_URL: "http://127.0.0.1:3100"
       CI: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -69,29 +69,32 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Create profile & link this plugin (dsh auto-creates the profile)
+        working-directory: ${{ env.DSH_HOME }}/profiles/web
         run: |
           pnpm dlx @deepseek-ai/dsh@next plugin --profile web add "$GITHUB_WORKSPACE"
           echo "profile ready with linked dsh-settings-manager"
 
+      - name: Verify dsh can compose the profile
+        working-directory: ${{ env.DSH_HOME }}/profiles/web
+        run: pnpm dlx @deepseek-ai/dsh@next --profile web --dump-config > /tmp/dump.yml
+
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
         run: |
-          # `timeout` keeps the whole pnpm dlx + dsh process alive (a bare
-          # backgrounded `pnpm dlx &` exits immediately and its PID dies, which
-          # used to trip the kill -0 check). First boot may take >25s to pull
-          # the base runtime, so poll generously.
-          timeout 360 pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-pw.log 2>&1 &
+          pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-e2e.log 2>&1 &
           echo "PID=$!" >> "$GITHUB_ENV"
-          echo "playwright: server (timeout) PID=$! port=$DSH_PORT"
-          code=""
-          for i in $(seq 1 90); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' "$DSH_WEB_URL" || true)"
-            if [ "$code" = "200" ]; then echo "playwright: server up after ${i}s"; break; fi
+          echo "e2e: server PID=$! port=$DSH_PORT"
+          for i in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DSH_PORT" || true)"
+            if [ "$code" = "200" ]; then
+              echo "Server responded 200 after ${i}s"
+              break
+            fi
             sleep 1
           done
           if [ "$code" != "200" ]; then
             echo "::error::dsh web server did not respond with 200 (last code: $code)"
-            cat /tmp/dsh-pw.log
+            cat /tmp/dsh-e2e.log
             exit 1
           fi
 
@@ -107,23 +110,25 @@ jobs:
 
       - name: Show dsh boot log on failure
         if: failure()
-        run: cat /tmp/dsh-pw.log
+        run: cat /tmp/dsh-e2e.log
 
   pkg:
     name: Build & push pkg branch
     runs-on: ubuntu-latest
-    needs: [test]
+    # Build the distribution branch only after the FULL suite passes
+    # (unit/e2e + Playwright), since the profile consumes #pkg directly.
+    needs: [test, playwright]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
