@@ -73,26 +73,20 @@ jobs:
           pnpm dlx @deepseek-ai/dsh@next plugin --profile web add "$GITHUB_WORKSPACE"
           echo "profile ready with linked dsh-settings-manager"
 
-      - name: Diagnose dsh boot (foreground, capture real error)
-        working-directory: ${{ env.DSH_HOME }}/profiles/web
-        run: |
-          echo "--- profile package.json ---"; cat package.json
-          echo "--- node_modules top-level ---"; ls node_modules | head -20
-          echo "--- dsh boot (timeout 25s) ---"
-          timeout 25 pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open 2>&1 | tail -40
-          echo "boot exit=${PIPESTATUS[0]}"
-
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
         run: |
-          pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-pw.log 2>&1 &
+          # `timeout` keeps the whole pnpm dlx + dsh process alive (a bare
+          # backgrounded `pnpm dlx &` exits immediately and its PID dies, which
+          # used to trip the kill -0 check). First boot may take >25s to pull
+          # the base runtime, so poll generously.
+          timeout 360 pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-pw.log 2>&1 &
           echo "PID=$!" >> "$GITHUB_ENV"
-          echo "playwright: server PID=$! port=$DSH_PORT"
+          echo "playwright: server (timeout) PID=$! port=$DSH_PORT"
           code=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             code="$(curl -s -o /dev/null -w '%{http_code}' "$DSH_WEB_URL" || true)"
             if [ "$code" = "200" ]; then echo "playwright: server up after ${i}s"; break; fi
-            if ! kill -0 "$PID" 2>/dev/null; then echo "playwright: server died early" >&2; break; fi
             sleep 1
           done
           if [ "$code" != "200" ]; then
