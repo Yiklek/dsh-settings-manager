@@ -67,18 +67,20 @@ test('manager panel renders a row per section with a switch, and toggling hides/
   const dialog = page.locator('[role="dialog"]')
   const rows = dialog.locator('li')
   const count = await rows.count()
-  expect(count).toBeGreaterThan(5)
+  // Base DSH profiles render 通用设置/设置编排/模型/插件… — assert a healthy
+  // minimum rather than a specific plugin count so the test is profile-agnostic.
+  expect(count).toBeGreaterThanOrEqual(4)
   await expect(rows.first().getByRole('switch')).toBeVisible()
   await expect(dialog.locator('.dsm-reset-all')).toBeVisible()
 
-  // Toggle "API 重试" off → it leaves the nav.
-  const retryRow = rows.filter({ hasText: 'API 重试' })
+  // Toggle "模型" (id `models`, shown in the meta line) off → it leaves the nav.
+  const retryRow = rows.filter({ hasText: 'models' })
   await retryRow.getByRole('switch').click()
-  await expect(nav.getByRole('button', { name: 'API 重试', exact: true })).toHaveCount(0)
+  await expect(nav.getByRole('button', { name: '模型', exact: true })).toHaveCount(0)
 
   // Toggle it back on → returns.
   await retryRow.getByRole('switch').click()
-  await expect(nav.getByRole('button', { name: 'API 重试', exact: true })).toBeVisible()
+  await expect(nav.getByRole('button', { name: '模型', exact: true })).toBeVisible()
 })
 
 test('drag & drop moves a section and clears the drop highlight', async ({ page }) => {
@@ -96,11 +98,13 @@ test('drag & drop moves a section and clears the drop highlight', async ({ page 
   }
   const before = await orderOf('设置编排')
 
-  // Drag "设置编排" (near the top) down onto a NON-adjacent row, so either a
-  // before/after placement moves it (a drop at the exact middle of the target
-  // computes 'before', which is a no-op for an immediately-adjacent pair).
+  // Drag "设置编排" (near the top) down onto the LAST row — guaranteed
+  // non-adjacent on any profile with ≥3 rows, so either a before/after
+  // placement moves it (a drop at the exact middle of an adjacent target
+  // computes 'before', a no-op). Index-based targeting keeps the test
+  // profile-agnostic.
   const src = rows.filter({ hasText: '设置编排' }).first()
-  const dst = rows.filter({ hasText: '模型能力与档位' }).first()
+  const dst = rows.nth((await rows.count()) - 1)
   await src.scrollIntoViewIfNeeded()
   await dst.scrollIntoViewIfNeeded()
   const a = await src.boundingBox()
@@ -140,8 +144,9 @@ test('reset-all restores the original nav order after a reorder', async ({ page 
   }
   const modelsBefore = await orderOf('模型')
 
-  // Click ↓ once → 模型 moves down one slot (live).
-  const modelsRow = rows.filter({ hasText: '模型' })
+  // Click ↓ once → 模型 moves down one slot (live). Anchor on the unique id
+  // (`models` in the meta line) so it never collides with 模型能力与档位.
+  const modelsRow = rows.filter({ hasText: 'models' })
   await modelsRow.locator('.dsm-icon-btn').nth(1).click()
   await expect.poll(async () => (await orderOf('模型')) > modelsBefore).toBe(true)
 

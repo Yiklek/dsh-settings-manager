@@ -20,7 +20,9 @@ export default {
   reporter: [['list']],
   use: {
     baseURL: process.env.DSH_WEB_URL || `http://127.0.0.1:${process.env.DSH_PORT || '3080'}`,
-    channel: 'msedge',
+    // Local dev uses branded Microsoft Edge; CI (Linux) has no Edge, so it falls
+    // back to Playwright's bundled Chromium.
+    channel: process.env.CI ? undefined : 'msedge',
     headless: true,
     viewport: { width: 1440, height: 900 },
     locale: 'zh-CN',
