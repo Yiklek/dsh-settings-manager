@@ -179,7 +179,7 @@ test('rename changes the section name in the nav and persists across reload', as
   // The nav now shows the custom name (persisted live).
   await expect(nav.getByRole('button', { name: renamed })).toBeVisible()
 
-  // Reload → still applied (localStorage persistence).
+  // Reload → still applied (server-side settings persistence).
   await page.reload()
   expect(await openSettings(page), 'settings should re-open after reload').toBe(true)
   await expect(nav.getByRole('button', { name: renamed })).toBeVisible()

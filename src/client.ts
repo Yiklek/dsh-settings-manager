@@ -107,9 +107,13 @@ interface LocaleService {
   bind(ns: string): (key: string, params?: unknown) => string
 }
 
-/** The settings wire face of the connection service (the DSH standard seam). */
+/** The settings wire face of the connection service (the DSH standard seam).
+ *  Unary RPC methods resolve to an RpcResponse whose `result` is
+ *  `{ ok: true, value } | { ok: false, error }`; the payload rides `.value`. */
 interface SettingsWire {
-  describe(request: Record<string, unknown>): Promise<{ namespaces: { ns: string; value: unknown }[] }>
+  describe(request: Record<string, unknown>): Promise<{
+    result: { ok: true; value: { namespaces: { ns: string; value: unknown }[] } } | { ok: false; error: unknown }
+  }>
   replace(request: { ns: string; section: object }): Promise<unknown>
 }
 
@@ -299,8 +303,9 @@ function createPolicy(persist: (doc: PolicyDoc) => void): Policy {
     }
   }
 
-  function changed(): void {
-    save()
+  // Emit to subscribers + fire the slot bump, WITHOUT persisting (used by
+  // load(): a server-resolved document is already persisted).
+  function emit(): void {
     emitter.emit()
     if (onChanged) {
       try {
@@ -311,13 +316,18 @@ function createPolicy(persist: (doc: PolicyDoc) => void): Policy {
     }
   }
 
+  function changed(): void {
+    save()
+    emit()
+  }
+
   return {
     load(doc) {
       if (mutated) return
       state.hidden = isRecord(doc.hidden) ? (doc.hidden as Record<string, boolean>) : {}
       state.order = isRecord(doc.order) ? (doc.order as Record<string, number>) : {}
       state.labels = isRecord(doc.labels) ? (doc.labels as Record<string, string>) : {}
-      changed()
+      emit()
     },
     isHidden(id) {
       return id !== OWN_ID && state.hidden[id] === true
@@ -1064,8 +1074,10 @@ export function apply(ctx: Context): void {
   if (settings) {
     void settings
       .describe({})
-      .then((description) => {
-        const ns = description.namespaces.find((row) => row.ns === SECTION_NS)
+      .then((response) => {
+        if (!response.result.ok) return
+        const value = response.result.value
+        const ns = value.namespaces.find((row) => row.ns === SECTION_NS)
         if (ns && isRecord(ns.value)) policy.load(ns.value as unknown as PolicyDoc)
       })
       .catch(() => {})

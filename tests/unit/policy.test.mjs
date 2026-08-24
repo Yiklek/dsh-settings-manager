@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setupScenario } from '../helpers/scenario.mjs'
+import { loadEnv, SEAM_KEY } from '../helpers/load-env.mjs'
 
 function fresh() {
   return setupScenario()
@@ -147,3 +148,33 @@ test('nav read path reflects the custom label', () => {
 })
 
 
+
+test('startup loads the persisted policy from settings.describe', async () => {
+  const env = loadEnv()
+  const { slots, plugin, ctx, connection } = env
+  slots.declare('settings.section')
+  slots.register({ name: 'settings.section', id: 'api-retry', order: 95, label: () => 'API 重试' }, () => {})
+  slots.register({ name: 'settings.section', id: 'models', order: 10, label: () => '模型' }, () => {})
+  // Seed the server document BEFORE apply, so the async describe load picks it up.
+  connection._setPersisted({ hidden: { 'api-retry': true }, order: { models: 30 }, labels: { models: '接管' } })
+  plugin.apply(ctx)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const test = env.vmGlobal[SEAM_KEY]
+  assert.equal(test.policy.isHidden('api-retry'), true)
+  assert.equal(test.policy.orderFor('models'), 30)
+  assert.equal(test.policy.labelFor('models'), '接管')
+})
+
+test('startup load does not overwrite a user mutation made before describe resolves', async () => {
+  const env = loadEnv()
+  const { slots, plugin, ctx, connection } = env
+  slots.declare('settings.section')
+  slots.register({ name: 'settings.section', id: 'api-retry', order: 95, label: () => 'API 重试' }, () => {})
+  connection._setPersisted({ hidden: { 'api-retry': true }, order: {}, labels: {} })
+  plugin.apply(ctx)
+  const test = env.vmGlobal[SEAM_KEY]
+  // user toggles before the async describe resolves
+  test.policy.setHidden('api-retry', false)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(test.policy.isHidden('api-retry'), false) // user change wins over the stale load
+})

@@ -53,12 +53,17 @@ export function mockConnection(initial = undefined) {
     api: {
       settings: {
         async describe() {
-          return { namespaces: [{ ns: 'settings-manager', value: persisted }] }
+          return {
+            result: {
+              ok: true,
+              value: { writable: true, hasDocument: true, namespaces: [{ ns: 'settings-manager', value: persisted }] },
+            },
+          }
         },
         async replace({ ns, section }) {
           replaceCalls.push({ ns, section: structuredClone(section) })
           persisted = structuredClone(section)
-          return { ns, value: persisted }
+          return { result: { ok: true, value: { ns, value: persisted } } }
         },
       },
     },
