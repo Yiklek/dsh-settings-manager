@@ -40,7 +40,9 @@ jobs:
   playwright:
     name: Playwright functional test
     runs-on: ubuntu-latest
-    needs: test
+    # Runs only after pkg exists: it installs dsh-web-profile, which consumes the
+    # plugin from the #pkg branch (so the test validates the built distribution).
+    needs: [test, pkg]
     env:
       DSH_HOME: /tmp/dsh-home-pw
       DSH_PORT: "3100"
@@ -66,29 +68,14 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Create minimal DSH profile referencing this checkout
-        run: |
-          mkdir -p "$DSH_HOME/profiles/web"
-          cat > "$DSH_HOME/profiles/web/package.json" <<EOF
-          {
-            "name": "dsh-profile-ci",
-            "private": true,
-            "dependencies": { "dsh-settings-manager": "file:${GITHUB_WORKSPACE}" },
-            "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-settings-manager"] } }
-          }
-          EOF
-          cat > "$DSH_HOME/profiles/web/pnpm-workspace.yaml" <<EOF
-          packages:
-            - .
-          nodeLinker: hoisted
-          autoInstallPeers: false
-          allowBuilds:
-            esbuild: true
-          EOF
+      - name: Clone dsh-web-profile (base runtime comes transitively from its plugins)
+        run: git clone --depth 1 https://github.com/Yiklek/dsh-web-profile.git /tmp/dsh-web-profile
 
-      - name: Install profile deps
-        working-directory: ${{ env.DSH_HOME }}/profiles/web
-        run: pnpm install
+      - name: Install profile via dsh-web-profile install.sh
+        working-directory: /tmp/dsh-web-profile
+        run: |
+          ./install.sh web --mode worktree --branch ci-web --force
+          echo "profile: ready at $DSH_HOME/profiles/web"
 
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
@@ -126,7 +113,7 @@ jobs:
   pkg:
     name: Build & push pkg branch
     runs-on: ubuntu-latest
-    needs: [test, playwright]
+    needs: [test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
