@@ -1,6 +1,33 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 const DISMISS_LABELS = ['继续', '稍后配置', '知道了', '关闭此提示']
+
+/**
+ * Resolve the dsh connection URL to establish the browser session (same
+ * approach as settings-manager.spec.mjs — see its tokenUrl docs).
+ */
+function tokenUrl() {
+  if (process.env.DSH_TOKEN_URL && process.env.DSH_TOKEN_URL.trim() !== '') {
+    return process.env.DSH_TOKEN_URL.trim()
+  }
+  const logPath = process.env.DSH_BOOT_LOG || '/tmp/dsh-e2e.log'
+  let log
+  try {
+    log = readFileSync(logPath, 'utf8')
+  } catch {
+    return undefined
+  }
+  const match = log.match(/https?:\/\/[^\s]+[?&]token=[A-Za-z0-9_-]+/)
+  return match ? match[0] : undefined
+}
+
+test.beforeEach(async ({ page }) => {
+  const url = tokenUrl()
+  if (url !== undefined) {
+    await page.goto(url, { waitUntil: 'commit', timeout: 30_000 })
+  }
+})
 
 async function openSettings(page) {
   for (let attempt = 0; attempt < 5; attempt++) {

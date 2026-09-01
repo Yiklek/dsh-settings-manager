@@ -9,12 +9,45 @@
  * needs scrolling to reach it.
  */
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 // First-run / onboarding dialogs can appear in a fresh context. Dismiss them
 // the same way the dsh-web-profile CI smoke does: repeatedly dismiss whatever
 // modal is present (click the [aria-hidden] mask, tap known dismiss buttons),
 // then retry opening Settings until it succeeds.
 const DISMISS_LABELS = ['继续', '稍后配置', '知道了', '关闭此提示']
+
+/**
+ * Resolve the dsh connection URL to establish the browser session before the
+ * test navigates. dsh boot prints a token-bearing root URL
+ * (`http://host:port/?token=...`); visiting it exchanges the token for an
+ * authority-bound cookie and redirects to the clean root. The URL comes from
+ * `DSH_TOKEN_URL` when the caller knows it directly; otherwise it is parsed
+ * from the dsh boot log (`DSH_BOOT_LOG`, defaulting to the CI path). Returns
+ * `undefined` when no token URL is available (deployments without the root
+ * gate), in which case the test navigates straight to "/".
+ */
+function tokenUrl() {
+  if (process.env.DSH_TOKEN_URL && process.env.DSH_TOKEN_URL.trim() !== '') {
+    return process.env.DSH_TOKEN_URL.trim()
+  }
+  const logPath = process.env.DSH_BOOT_LOG || '/tmp/dsh-e2e.log'
+  let log
+  try {
+    log = readFileSync(logPath, 'utf8')
+  } catch {
+    return undefined
+  }
+  const match = log.match(/https?:\/\/[^\s]+[?&]token=[A-Za-z0-9_-]+/)
+  return match ? match[0] : undefined
+}
+
+test.beforeEach(async ({ page }) => {
+  const url = tokenUrl()
+  if (url !== undefined) {
+    await page.goto(url, { waitUntil: 'commit', timeout: 30_000 })
+  }
+})
 
 async function openSettings(page) {
   for (let attempt = 0; attempt < 5; attempt++) {

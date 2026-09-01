@@ -15,7 +15,7 @@ DSH web 插件：**管理其他插件在「全局设置」对话框中的放置*
 - **i18n**：内置简体中文与英文（`settingsManager` 命名空间，跟随外壳语言，默认回退英文）；
 - 展示每个分区的 id 与来源插件（registrant）。
 
-所有改动**即时生效**，无需重启。策略通过 **DSH 标准 settings 命名空间**（`settings-manager`）持久化到服务端：host 半区用 `installSettingsSection` 注册命名空间，客户端经 `connection.api.settings` 读写，由 SettingsProvider 落盘（loopback-only，纯服务端）。
+所有改动**即时生效**，无需重启。策略通过 **DSH 标准 settings 命名空间**（`settings-manager`）持久化到服务端：host 半区经 `ctx.inject(['settings'], ...)` 用 `settings.register` 注册命名空间，客户端经 `remote.settings` Remote RPC 读写，由 SettingsProvider 落盘（纯服务端）。
 
 ## 原理：拦截槽位注册
 

@@ -34,9 +34,8 @@
  * bumps the slot version and fires the listeners (no visible flash — the
  * flush runs on a microtask after both mutations).
  *
- * Policy persistence: localStorage. The settings RPC only exposes allowlisted
- * namespaces to configuration clients (api-proxy `exposedNamespaces()`), so a
- * profile plugin cannot open its own settings namespace upstream.
+ * Policy persistence: the server-side settings namespace registered by the
+ * host half, read/written over the `remote.settings` wire face.
  *
  * Build: esbuild bundles this file into `lib/client.js` wrapped in the DSH
  * module format (`window.__ModuleLoader__.load`). `react` stays external (a
@@ -107,20 +106,20 @@ interface LocaleService {
   bind(ns: string): (key: string, params?: unknown) => string
 }
 
-/** The settings wire face of the connection service (the DSH standard seam).
- *  Unary RPC methods resolve to an RpcResponse whose `result` is
+/** The settings Remote namespace (`ctx.remote.settings`, the DSH standard
+ *  wire seam). Unary RPC methods resolve to a RemoteResult
  *  `{ ok: true, value } | { ok: false, error }`; the payload rides `.value`. */
 interface SettingsWire {
-  describe(request: Record<string, unknown>): Promise<{
-    result: { ok: true; value: { namespaces: { ns: string; value: unknown }[] } } | { ok: false; error: unknown }
-  }>
-  replace(request: { ns: string; section: object }): Promise<unknown>
+  describe(): Promise<
+    | { ok: true; value: { namespaces: { ns: string; value: unknown }[] } }
+    | { ok: false; error: unknown }
+  >
+  replace(ns: string, section: object, expectedRevision?: number): Promise<unknown>
 }
 
-/** The client `connection` service (`@deepseek-ai/dsh-client-connection`). */
-interface ConnectionService {
-  api: { settings: SettingsWire }
-  isLoopback: boolean
+/** The client `remote` service (`@deepseek-ai/dsh-api-remotes`). */
+interface RemoteService {
+  settings: SettingsWire
 }
 
 /** The plugin's policy API (shared by patches, UI, and the test seam). */
@@ -1025,13 +1024,13 @@ function globals(): any {
 }
 
 export const name = 'dsh-settings-manager'
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'remote', 'remote.settings']
 
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots') as unknown as SlotsService
   if (slots === undefined) return
 
-  const connection = ctx.get('connection') as unknown as ConnectionService | undefined
+  const remote = ctx.get('remote') as unknown as RemoteService | undefined
 
   const locale = ctx.get('locale') as unknown as LocaleService | undefined
   if (locale !== undefined) {
@@ -1052,13 +1051,13 @@ export function apply(ctx: Context): void {
   // this plugin's own section) flows through the policy.
   //
   // Persist the full policy to the server settings namespace `settings-manager`
-  // (registered by the host half). This follows the DSH settings seam, which is
-  // loopback-only; if the connection/settings wire is unavailable the plugin
-  // degrades to in-memory only (no persistence).
-  const settings = connection && connection.api && connection.api.settings ? connection.api.settings : undefined
+  // (registered by the host half) over the `remote.settings` wire face. If the
+  // remote service is unavailable the plugin degrades to in-memory only (no
+  // persistence).
+  const settings = remote && remote.settings ? remote.settings : undefined
   const persist = settings
     ? (doc: PolicyDoc): void => {
-        void settings.replace({ ns: SECTION_NS, section: doc as unknown as object }).catch(() => {})
+        void settings.replace(SECTION_NS, doc as unknown as object, undefined).catch(() => {})
       }
     : (): void => {}
 
@@ -1073,10 +1072,10 @@ export function apply(ctx: Context): void {
   // path shows plugin defaults until it resolves, then re-reads via the bump).
   if (settings) {
     void settings
-      .describe({})
+      .describe()
       .then((response) => {
-        if (!response.result.ok) return
-        const value = response.result.value
+        if (!response.ok) return
+        const value = response.value
         const ns = value.namespaces.find((row) => row.ns === SECTION_NS)
         if (ns && isRecord(ns.value)) policy.load(ns.value as unknown as PolicyDoc)
       })

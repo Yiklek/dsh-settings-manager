@@ -70,29 +70,31 @@ jobs:
 
       - name: Create profile & link this plugin (dsh auto-creates the profile)
         run: |
-          pnpm dlx @deepseek-ai/dsh@next plugin --profile web add "$GITHUB_WORKSPACE"
+          pnpm dlx @deepseek-ai/dsh@alpha plugin --profile web add "$GITHUB_WORKSPACE"
           echo "profile ready with linked dsh-settings-manager"
 
       - name: Verify dsh can compose the profile
         working-directory: ${{ env.DSH_HOME }}/profiles/web
-        run: pnpm dlx @deepseek-ai/dsh@next --profile web --dump-config > /tmp/dump.yml
+        run: pnpm dlx @deepseek-ai/dsh@alpha --profile web --dump-config > /tmp/dump.yml
 
       - name: Start dsh web server
         working-directory: ${{ env.DSH_HOME }}/profiles/web
         run: |
-          pnpm dlx @deepseek-ai/dsh@next --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-e2e.log 2>&1 &
+          pnpm dlx @deepseek-ai/dsh@alpha --profile web --host 127.0.0.1 --port "$DSH_PORT" --no-open > /tmp/dsh-e2e.log 2>&1 &
           echo "PID=$!" >> "$GITHUB_ENV"
           echo "e2e: server PID=$! port=$DSH_PORT"
+          # The root gate answers 401 until the browser exchanges the boot
+          # token; readiness means the token URL has been printed.
           for i in $(seq 1 60); do
             code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DSH_PORT" || true)"
-            if [ "$code" = "200" ]; then
-              echo "Server responded 200 after ${i}s"
+            if grep -qE 'https?://[^ ]+\?token=' /tmp/dsh-e2e.log; then
+              echo "Server ready after ${i}s (HTTP $code)"
               break
             fi
             sleep 1
           done
-          if [ "$code" != "200" ]; then
-            echo "::error::dsh web server did not respond with 200 (last code: $code)"
+          if ! grep -qE 'https?://[^ ]+\?token=' /tmp/dsh-e2e.log; then
+            echo "::error::dsh web server did not become ready"
             cat /tmp/dsh-e2e.log
             exit 1
           fi

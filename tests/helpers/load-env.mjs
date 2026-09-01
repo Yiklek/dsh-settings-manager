@@ -40,31 +40,26 @@ export function inMemoryStorage() {
 }
 
 /**
- * Fresh mock `connection` service (the DSH settings wire). The client's policy
- * persists to `api.settings.replace({ ns:'settings-manager', section })` and
- * loads from `api.settings.describe({})`. The mock stores the persisted
+ * Fresh mock `remote` service (the DSH settings wire). The client's policy
+ * persists to `remote.settings.replace('settings-manager', section)` and
+ * loads from `remote.settings.describe()`. The mock stores the persisted
  * document in memory so tests can assert what got written / seed what gets read.
  */
 export function mockConnection(initial = undefined) {
   let persisted = initial !== undefined ? initial : { hidden: {}, order: {}, labels: {} }
   const replaceCalls = []
   return {
-    isLoopback: true,
-    api: {
-      settings: {
-        async describe() {
-          return {
-            result: {
-              ok: true,
-              value: { writable: true, hasDocument: true, namespaces: [{ ns: 'settings-manager', value: persisted }] },
-            },
-          }
-        },
-        async replace({ ns, section }) {
-          replaceCalls.push({ ns, section: structuredClone(section) })
-          persisted = structuredClone(section)
-          return { result: { ok: true, value: { ns, value: persisted } } }
-        },
+    settings: {
+      async describe() {
+        return {
+          ok: true,
+          value: { writable: true, hasDocument: true, namespaces: [{ ns: 'settings-manager', value: persisted }] },
+        }
+      },
+      async replace(ns, section, expectedRevision) {
+        replaceCalls.push({ ns, section: structuredClone(section), expectedRevision })
+        persisted = structuredClone(section)
+        return { ok: true, value: { ns, value: persisted } }
       },
     },
     /** Current persisted document (what a fresh describe would return). */
@@ -148,7 +143,7 @@ export function loadEnv({ globals = {}, react, locale, resolveSpecifier } = {}) 
     get(name) {
       if (name === 'slots') return slots
       if (name === 'locale') return localeMock
-      if (name === 'connection') return connection
+      if (name === 'remote') return connection
       return undefined
     },
     effect(callback) {
